@@ -215,8 +215,9 @@ async function drawTDAExplorerGraph() {
   const svgEl = document.getElementById('tda-explorer-graph');
   if (!svgEl || typeof d3 === 'undefined') return;
 
-  // Give the DOM a tick to lay out so getBoundingClientRect returns real dimensions
-  await new Promise(r => requestAnimationFrame(r));
+  // Wait 2 frames + small delay so flex/grid layout is fully computed
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  await new Promise(r => setTimeout(r, 30));
 
   try {
     const [graphData, findingsData] = await Promise.all([

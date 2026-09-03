@@ -425,12 +425,26 @@ function showMapperNodeInfo(nd, stateColor) {
 function _getSvg() { return document.getElementById('graph-svg'); }
 
 function _dims(svgEl, marginOverride) {
-  const rect = svgEl.getBoundingClientRect();
-  const W    = Math.max(rect.width  || svgEl.clientWidth  || 420, 300);
-  const H    = Math.max(rect.height || svgEl.clientHeight || 310, 220);
+  // Prefer parent container width (reliable inside flex/grid after layout)
+  const parent = svgEl.parentElement;
+  const pW     = parent ? parent.clientWidth  || parent.offsetWidth  : 0;
+  const pH     = parent ? parent.clientHeight || parent.offsetHeight : 0;
+  const rect   = svgEl.getBoundingClientRect();
+
+  const W = Math.max(pW || rect.width  || svgEl.clientWidth  || 500, 300);
+  const H = Math.max(
+    pH > 60 ? pH - 50 : 0,         // parent height minus caption
+    rect.height || svgEl.clientHeight || 340,
+    260
+  );
+
+  // Set explicit pixel dimensions so D3 coordinate space fills the element
   svgEl.setAttribute('width',  W);
   svgEl.setAttribute('height', H);
-  const margin = Object.assign({ top:32, right:16, bottom:50, left:50 }, marginOverride||{});
+  svgEl.style.width  = W + 'px';
+  svgEl.style.height = H + 'px';
+
+  const margin = Object.assign({ top:32, right:20, bottom:50, left:52 }, marginOverride||{});
   return { W, H, margin, innerW: W-margin.left-margin.right, innerH: H-margin.top-margin.bottom };
 }
 

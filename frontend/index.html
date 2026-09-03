@@ -419,9 +419,9 @@ nav{
     </div>
 
     <!-- Right: Topology Graph -->
-    <div style="padding:16px;display:flex;flex-direction:column;gap:10px;min-height:0">
-      <div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint)">TOPOLOGY GRAPH (MAPPER)</div>
-      <svg id="tda-explorer-graph" style="width:100%;flex:1;min-height:320px;background:var(--panel);border-radius:4px;display:block"></svg>
+    <div style="padding:16px;display:flex;flex-direction:column;gap:8px;min-height:0;overflow:hidden">
+      <div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);flex:none">TOPOLOGY GRAPH (MAPPER)</div>
+      <svg id="tda-explorer-graph" style="flex:1;min-height:300px;background:var(--panel);border-radius:4px;display:block;overflow:visible"></svg>
       <div style="font-size:10px;color:var(--faint);font-family:'IBM Plex Mono',monospace;line-height:1.6">
         Each dot = one mapper node &nbsp;•&nbsp; X = time (jittered) &nbsp;•&nbsp; Color = anomaly state<br>
         Edges = topological adjacency &nbsp;•&nbsp; Click node for details
