@@ -9,16 +9,23 @@
 
 let _graphData    = null;   // cached from API
 let _findingsData = null;   // cached from API
+let _wantedLens   = null;   // latest requested lens (cancels stale async renders)
 
 // ── Entry point: called by findings.js when lens changes ──────────────────────
 async function renderGraphForLens(lensName) {
+  _wantedLens = lensName;   // record intent before any await
   try {
     if (!_graphData || !_findingsData) {
-      [_graphData, _findingsData] = await Promise.all([
+      const [g, f] = await Promise.all([
         fetch(`${API}/api/tda/graph`).then(r => r.json()),
         fetch(`${API}/api/findings`).then(r => r.json()),
       ]);
+      _graphData    = g;
+      _findingsData = f;
     }
+    // Abort if a newer lens request arrived while we were fetching
+    if (_wantedLens !== lensName) return;
+
     switch (lensName) {
       case 'topology':      drawTopologyScatter(_graphData, _findingsData); break;
       case 'relationships': drawBipartiteGraph(_findingsData.relationships || []); break;
@@ -272,45 +279,75 @@ function drawSuspiciousChart(suspicious) {
 }
 
 
-// ── 4. ANOMALY SCATTER ────────────────────────────────────────────────────────
+// ── 4. ANOMALY CHART — ranked horizontal bars (country · sector · score) ──────
 
 function drawAnomalyScatter(anomalies) {
   const svgEl = _getSvg(); if (!svgEl) return;
-  const { W, H, margin, innerW, innerH } = _dims(svgEl);
+  const { W, H, margin, innerW, innerH } = _dims(svgEl, {top:28,right:16,bottom:16,left:56});
   const svg = d3.select(svgEl); svg.selectAll('*').remove();
 
-  svg.append('text').attr('x',margin.left).attr('y',16)
+  svg.append('text').attr('x', margin.left).attr('y', 16)
     .attr('fill','#D9DCE3').attr('font-size',11).attr('font-weight',600)
-    .attr('font-family',"'Space Grotesk',sans-serif").text('Anomaly Distribution');
+    .attr('font-family',"'Space Grotesk',sans-serif").text('Top Anomalies — Score Ranking');
 
   if (!anomalies.length) { _graphError('No anomalies'); return; }
 
-  const root = svg.append('g').attr('transform',`translate(${margin.left},${margin.top})`);
-  const isoScores  = anomalies.map(a => a.extra?.iso_score  || 0);
-  const topoScores = anomalies.map(a => a.extra?.topo_score || 0);
-  const xScale = d3.scaleLinear().domain([0, d3.max(isoScores)*1.1||1]).range([0,innerW]);
-  const yScale = d3.scaleLinear().domain([0, d3.max(topoScores)*1.1||1]).range([innerH,0]);
+  const top = anomalies.slice(0, Math.min(20, anomalies.length));
+  const labels = top.map(a => {
+    const ex = a.extra || {};
+    const c  = (ex.country  || '').slice(0, 12);
+    const s  = (ex.dac_sector || '').slice(0, 10);
+    return c ? `${c}·${s}` : (a.sources||['?'])[0];
+  });
 
-  root.append('g').selectAll('line').data(yScale.ticks(5)).enter().append('line')
-    .attr('x1',0).attr('x2',innerW).attr('y1',d=>yScale(d)).attr('y2',d=>yScale(d))
+  const root    = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+  const yScale  = d3.scaleBand().domain(labels).range([0, innerH]).padding(0.22);
+  const xScale  = d3.scaleLinear().domain([0, 1]).range([0, innerW]);
+
+  // Grid
+  root.append('g').selectAll('line').data(xScale.ticks(5)).enter().append('line')
+    .attr('x1',d=>xScale(d)).attr('x2',d=>xScale(d)).attr('y1',0).attr('y2',innerH)
     .attr('stroke','rgba(42,47,58,.6)').attr('stroke-dasharray','3,3');
 
   const tip = _tooltip();
-  root.selectAll('circle').data(anomalies).enter().append('circle')
-    .attr('cx', d => xScale(d.extra?.iso_score||0))
-    .attr('cy', d => yScale(d.extra?.topo_score||0))
-    .attr('r', d => 4 + (d.score||0)*7)
-    .attr('fill', d => d.score>0.7?'#E05252':d.score>0.4?'#E0A33E':'#9B7FD4')
-    .attr('fill-opacity',.8).attr('stroke','rgba(255,255,255,.15)').attr('stroke-width',1)
-    .style('cursor','pointer')
-    .on('mouseover',(ev,d)=>{
-      tip.style('display','block').style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px')
-        .html(`<b>${esc((d.title||'').slice(0,40))}</b><br>score: ${(d.score||0).toFixed(3)}<br>iso: ${(d.extra?.iso_score||0).toFixed(3)} topo: ${(d.extra?.topo_score||0).toFixed(3)}`);
-    }).on('mousemove',(ev)=>tip.style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px'))
-      .on('mouseout',()=>tip.style('display','none'))
-      .on('click',(ev,d)=>{ const pid=(d.sources||[])[0]; if(pid) loadAudit(pid); });
+  const barH = yScale.bandwidth();
 
-  _axes(root, xScale, yScale, innerH, innerW, 'IsolationForest score', 'topological score');
+  top.forEach((a, i) => {
+    const score = a.score || 0;
+    const col   = score > 0.8 ? '#E05252' : score > 0.5 ? '#E0A33E' : '#9B7FD4';
+    const y     = yScale(labels[i]);
+    const w     = xScale(score);
+
+    // Background bar
+    root.append('rect').attr('x',0).attr('y',y).attr('width',innerW).attr('height',barH)
+      .attr('fill', i%2===0 ? 'rgba(26,29,36,.6)' : 'rgba(32,36,45,.4)');
+
+    // Score bar
+    root.append('rect').attr('x',0).attr('y',y+2).attr('width',w).attr('height',barH-4)
+      .attr('fill',col).attr('fill-opacity',.75).attr('rx',2)
+      .style('cursor','pointer')
+      .on('mouseover',(ev)=>{
+        const ex = a.extra||{};
+        tip.style('display','block').style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px')
+          .html(`<b>${esc((a.title||'').slice(0,50))}</b><br>score: <b>${score.toFixed(3)}</b><br>iso: ${(ex.iso_score||0).toFixed(3)} · topo: ${(ex.topo_score||0).toFixed(3)}<br>overrun: ${ex.cost_overrun_pct != null ? (ex.cost_overrun_pct*100).toFixed(1)+'%' : 'N/A'}`);
+      }).on('mousemove',(ev)=>tip.style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px'))
+        .on('mouseout',()=>tip.style('display','none'))
+        .on('click',()=>{ const pid=(a.sources||[])[0]; if(pid) loadAudit(pid); });
+
+    // Label (left, truncated)
+    root.append('text').attr('x',-4).attr('y',y+barH/2+4).attr('text-anchor','end')
+      .attr('fill','#878E9C').attr('font-size',8.5).attr('font-family',"'IBM Plex Mono',monospace")
+      .text(labels[i].slice(0,16));
+
+    // Score value
+    root.append('text').attr('x',w+4).attr('y',y+barH/2+4).attr('text-anchor','start')
+      .attr('fill',col).attr('font-size',8).attr('font-family',"'IBM Plex Mono',monospace")
+      .attr('font-weight',600).text(score.toFixed(3));
+  });
+
+  // X axis
+  root.append('g').attr('transform',`translate(0,${innerH})`).call(d3.axisBottom(xScale).ticks(5).tickFormat(d3.format('.1f')))
+    .call(g=>{ g.select('.domain').attr('stroke','var(--line)'); g.selectAll('text').attr('fill','#878E9C').attr('font-size',9); g.selectAll('line').attr('stroke','var(--line)'); });
 }
 
 
@@ -419,13 +456,13 @@ function showMapperNodeInfo(nd, stateColor) {
 
 function _getSvg() { return document.getElementById('graph-svg'); }
 
-function _dims(svgEl) {
+function _dims(svgEl, marginOverride) {
   const rect = svgEl.getBoundingClientRect();
   const W    = Math.max(rect.width  || svgEl.clientWidth  || 420, 300);
   const H    = Math.max(rect.height || svgEl.clientHeight || 310, 220);
   svgEl.setAttribute('width',  W);
   svgEl.setAttribute('height', H);
-  const margin = { top:32, right:16, bottom:50, left:50 };
+  const margin = Object.assign({ top:32, right:16, bottom:50, left:50 }, marginOverride||{});
   return { W, H, margin, innerW: W-margin.left-margin.right, innerH: H-margin.top-margin.bottom };
 }
 

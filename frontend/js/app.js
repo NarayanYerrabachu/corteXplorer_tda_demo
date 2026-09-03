@@ -31,11 +31,16 @@ async function init() {
     // Feature checkboxes in TDA Explorer
     buildFeatureChecks(_featureCols);
 
-    // Render initial findings (anomalies) + matching graph
-    // Invalidate any cached graph data so fresh fetch happens
-    if (typeof _graphData !== 'undefined') { _graphData = null; _findingsData = null; }
+    // Render initial findings (anomalies) + Anomaly graph
+    // Invalidate cache so a fresh fetch happens
+    if (typeof _graphData    !== 'undefined') _graphData    = null;
+    if (typeof _findingsData !== 'undefined') _findingsData = null;
+    if (typeof _wantedLens   !== 'undefined') _wantedLens   = null;
     renderFindings('anomalies');
-    if (typeof renderGraphForLens === 'function') renderGraphForLens('topology'); // start with topology scatter
+    // Delay graph render slightly so DOM is settled and lens state is set
+    setTimeout(() => {
+      if (typeof renderGraphForLens === 'function') renderGraphForLens('anomalies');
+    }, 100);
 
     // Init chat overlay
     initChatOverlay();
