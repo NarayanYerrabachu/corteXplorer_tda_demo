@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CorteXplorer — Government Aid Chat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="js/config.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/chat.js"></script>
+<style>
+  :root{
+    --ink:#13151A; --panel:#1A1D24; --panel2:#20242D; --line:#2A2F3A;
+    --text:#D9DCE3; --mute:#878E9C; --faint:#59616E;
+    --paper:#ECE7DA; --paper-ink:#23211C; --paper-mute:#6E6655;
+    --signal:#E0A33E; --signal-deep:#B5651d;
+    --danger:#E05252; --danger-deep:#8B1A1A;
+    --relate:#5E9CA6; --theme:#A9B4C4;
+    --tda:#9B7FD4; --ok:#6Fae8f; --drift:#4EA8DE;
+    --chat:#5E9CA6;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--ink);color:var(--text);font-family:'Space Grotesk',system-ui,sans-serif;
+       font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  .mono{font-family:'IBM Plex Mono',monospace}
+  button{font-family:inherit;color:inherit;cursor:pointer}
+  a{color:inherit;text-decoration:none}
+  ::selection{background:var(--tda);color:#100C1A}
+
+  /* ── App shell ── */
+  .app{display:flex;flex-direction:column;height:100vh;min-height:0}
+
+  /* ── Header ── */
+  header{
+    display:flex;align-items:center;gap:16px;padding:12px 20px;
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#1B1721,#171421);
+    flex-wrap:wrap;flex-shrink:0;
+  }
+  .brand{display:flex;align-items:baseline;gap:10px;white-space:nowrap}
+  .brand .mark{font-weight:700;font-size:17px;letter-spacing:.04em}
+  .brand .mark b{color:var(--tda)}
+  .brand .tag{font-size:10px;color:var(--mute);letter-spacing:.14em;text-transform:uppercase}
+  .brand .engine-badge{
+    font-size:10px;color:var(--tda);border:1px solid rgba(155,127,212,.4);
+    border-radius:2px;padding:1px 7px;letter-spacing:.1em;text-transform:uppercase;
+    font-family:'IBM Plex Mono',monospace;white-space:nowrap;
+  }
+  .nav-pill{
+    font-size:11px;color:var(--mute);letter-spacing:.08em;
+    background:var(--panel2);border:1px solid var(--line);border-radius:3px;
+    padding:5px 13px;transition:border-color .12s,color .12s;white-space:nowrap;
+  }
+  .nav-pill:hover{border-color:var(--tda);color:var(--text)}
+  .nav-pill.active{color:var(--text);border-color:rgba(94,156,166,.5);background:rgba(94,156,166,.08)}
+
+  /* ── Body layout ── */
+  .body{flex:1;display:flex;min-height:0}
+
+  /* ── Sidebar ── */
+  .sidebar{
+    width:240px;flex-shrink:0;border-right:1px solid var(--line);
+    display:flex;flex-direction:column;background:var(--panel);min-height:0;
+  }
+  @media(max-width:720px){.sidebar{display:none}}
+  .new-conv-btn{
+    display:flex;align-items:center;gap:10px;padding:13px 17px;
+    background:none;border:none;border-bottom:1px solid var(--line);color:var(--text);
+    font-size:13px;font-weight:500;width:100%;text-align:left;
+  }
+  .new-conv-btn:hover{background:var(--panel2)}
+  .new-conv-btn .ico{
+    width:22px;height:22px;border-radius:50%;background:rgba(94,156,166,.15);
+    border:1px solid rgba(94,156,166,.3);display:flex;align-items:center;
+    justify-content:center;font-size:13px;color:var(--chat);flex-shrink:0;
+  }
+  .sidebar-section{
+    padding:10px 17px 6px;font-size:10px;color:var(--faint);
+    letter-spacing:.14em;text-transform:uppercase;font-family:'IBM Plex Mono',monospace;
+  }
+  .conv-list{flex:1;overflow-y:auto;padding:4px 0}
+  .conv-list::-webkit-scrollbar{width:5px}
+  .conv-list::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px}
+  .conv-item{
+    display:flex;align-items:center;gap:9px;padding:9px 17px;cursor:pointer;
+    font-size:13px;color:var(--mute);border-left:2px solid transparent;
+    transition:background .1s;
+  }
+  .conv-item:hover{background:var(--panel2);color:var(--text)}
+  .conv-item.active{background:var(--panel2);color:var(--text);border-left-color:var(--chat)}
+  .conv-item .av{
+    width:24px;height:24px;border-radius:50%;background:rgba(94,156,166,.12);
+    border:1px solid rgba(94,156,166,.25);display:flex;align-items:center;
+    justify-content:center;font-size:10px;color:var(--chat);flex-shrink:0;
+    font-family:'IBM Plex Mono',monospace;font-weight:600;
+  }
+  .conv-item .cv-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+
+  /* ── Main chat area ── */
+  .main{flex:1;display:flex;flex-direction:column;min-height:0;position:relative}
+
+  /* ── Welcome screen ── */
+  #welcome-screen{
+    flex:1;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:22px;padding:40px 24px;text-align:center;
+  }
+  .w-icon{
+    width:58px;height:58px;border-radius:50%;
+    background:rgba(94,156,166,.1);border:1px solid rgba(94,156,166,.25);
+    display:flex;align-items:center;justify-content:center;font-size:26px;
+  }
+  #welcome-screen h2{margin:0;font-size:22px;font-weight:600;color:var(--text);letter-spacing:-.01em}
+  #welcome-screen p{margin:0;color:var(--mute);font-size:14px;max-width:440px;line-height:1.65}
+
+  /* ── Suggestion chips ── */
+  .suggestions{display:grid;grid-template-columns:1fr 1fr;gap:9px;max-width:540px;width:100%;margin-top:6px}
+  .sugg{
+    padding:13px 15px;background:var(--panel);border:1px solid var(--line);border-radius:4px;
+    text-align:left;cursor:pointer;transition:border-color .12s,background .12s;
+  }
+  .sugg:hover{border-color:var(--chat);background:var(--panel2)}
+  .sugg .s-icon{display:block;font-size:16px;margin-bottom:5px;opacity:.75}
+  .sugg .s-label{display:block;font-weight:500;font-size:13px;color:var(--text)}
+  .sugg .s-sub{display:block;font-size:11.5px;color:var(--mute);margin-top:2px;line-height:1.4}
+
+  /* Welcome input */
+  .w-input-wrap{max-width:600px;width:100%;position:relative}
+  .w-input{
+    width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);
+    border-radius:4px;padding:13px 50px 13px 17px;font-size:14px;font-family:inherit;
+    outline:none;transition:border-color .15s;
+  }
+  .w-input:focus{border-color:var(--chat);box-shadow:0 0 0 3px rgba(94,156,166,.12)}
+  .w-input::placeholder{color:var(--faint)}
+  .w-send{
+    position:absolute;right:10px;top:50%;transform:translateY(-50%);
+    width:34px;height:34px;border-radius:50%;background:var(--chat);
+    border:none;display:flex;align-items:center;justify-content:center;
+    color:#0a1a1c;font-size:16px;font-weight:700;transition:opacity .12s;
+  }
+  .w-send:disabled{opacity:.3}
+  .w-send:hover:not(:disabled){opacity:.85}
+
+  /* ── Active chat ── */
+  #chat-view{flex:1;display:none;flex-direction:column;min-height:0}
+  #chat-view.active{display:flex}
+  .messages{
+    flex:1;overflow-y:auto;padding:26px 30px;display:flex;flex-direction:column;gap:18px;
+  }
+  .messages::-webkit-scrollbar{width:8px}
+  .messages::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
+
+  /* Message bubbles */
+  .msg{display:flex;gap:12px;max-width:100%}
+  .msg.user{flex-direction:row-reverse}
+  .msg-bubble{
+    padding:12px 16px;border-radius:4px;max-width:76%;line-height:1.65;font-size:14px;
+  }
+  .msg.user .msg-bubble{
+    background:rgba(155,127,212,.12);border:1px solid rgba(155,127,212,.22);
+    border-radius:4px 4px 0 4px;
+  }
+  .msg.assistant .msg-bubble{
+    background:var(--panel);border:1px solid var(--line);border-radius:4px 4px 4px 0;
+  }
+  .msg.assistant .msg-bubble.error{border-color:var(--danger);color:var(--danger)}
+  .msg-avatar{
+    width:30px;height:30px;border-radius:50%;display:flex;align-items:center;
+    justify-content:center;font-size:11px;font-family:'IBM Plex Mono',monospace;
+    flex-shrink:0;margin-top:3px;font-weight:600;
+  }
+  .msg.user    .msg-avatar{background:rgba(155,127,212,.15);border:1px solid rgba(155,127,212,.3);color:var(--tda)}
+  .msg.assistant .msg-avatar{background:rgba(94,156,166,.15);border:1px solid rgba(94,156,166,.3);color:var(--chat)}
+  .msg-wrap{display:flex;flex-direction:column;gap:4px;min-width:0}
+  .msg-role{font-size:10px;color:var(--faint);letter-spacing:.1em;text-transform:uppercase;
+            font-family:'IBM Plex Mono',monospace}
+  .msg.user .msg-role{text-align:right}
+
+  /* Thinking animation */
+  .thinking-dots{display:inline-flex;gap:4px;align-items:center}
+  .thinking-dots span{
+    width:7px;height:7px;border-radius:50%;background:var(--mute);
+    animation:tdot .9s ease-in-out infinite;
+  }
+  .thinking-dots span:nth-child(2){animation-delay:.2s}
+  .thinking-dots span:nth-child(3){animation-delay:.4s}
+  @keyframes tdot{0%,100%{opacity:.2;transform:scale(.8)}50%{opacity:1;transform:scale(1.1)}}
+
+  /* Source chips */
+  .source-chips{
+    display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;padding-top:10px;
+    border-top:1px solid var(--line);align-items:center;
+  }
+  .source-chip{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--chat);
+    border:1px solid rgba(94,156,166,.3);border-radius:2px;padding:2px 8px;
+    background:rgba(94,156,166,.06);cursor:pointer;transition:border-color .1s;
+  }
+  .source-chip:hover{border-color:var(--chat)}
+  .chips-label{font-size:10px;color:var(--faint);font-family:'IBM Plex Mono',monospace;letter-spacing:.06em}
+
+  /* Traceable badge */
+  .traceable-msg-badge{
+    display:inline-flex;align-items:center;gap:5px;margin-top:10px;padding-top:10px;
+    border-top:1px solid var(--line);
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--ok);letter-spacing:.08em;
+  }
+
+  /* ── Input bar ── */
+  .input-bar{
+    padding:14px 30px;border-top:1px solid var(--line);background:var(--ink);flex-shrink:0;
+  }
+  .input-inner{
+    max-width:840px;margin:0 auto;display:flex;gap:10px;align-items:flex-end;
+  }
+  .input-inner textarea{
+    flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--text);
+    border-radius:4px;padding:11px 15px;font-family:inherit;font-size:14px;
+    resize:none;min-height:44px;max-height:140px;overflow-y:auto;line-height:1.5;
+    transition:border-color .15s;
+  }
+  .input-inner textarea:focus{outline:none;border-color:var(--chat);box-shadow:0 0 0 3px rgba(94,156,166,.12)}
+  .input-inner textarea::placeholder{color:var(--faint)}
+  .send-btn{
+    width:40px;height:40px;border-radius:50%;background:var(--chat);border:none;
+    display:flex;align-items:center;justify-content:center;color:#0a1a1c;
+    font-size:17px;font-weight:700;flex-shrink:0;transition:opacity .12s;
+  }
+  .send-btn:disabled{opacity:.3}
+  .send-btn:hover:not(:disabled){opacity:.85}
+
+  /* ── Source details sidebar ── */
+  .src-sidebar{
+    width:0;flex-shrink:0;border-left:0 solid var(--line);
+    overflow:hidden;transition:width .25s ease,border-width .25s;
+    display:flex;flex-direction:column;background:var(--panel);
+  }
+  .src-sidebar.open{width:300px;border-left-width:1px}
+  .src-head{
+    padding:12px 15px;border-bottom:1px solid var(--line);display:flex;
+    align-items:center;justify-content:space-between;flex-shrink:0;
+  }
+  .src-head .sh-title{font-size:11px;color:var(--faint);letter-spacing:.12em;text-transform:uppercase;font-family:'IBM Plex Mono',monospace}
+  .src-head .sh-close{background:none;border:none;color:var(--faint);font-size:18px;padding:0;line-height:1}
+  .src-head .sh-close:hover{color:var(--text)}
+  #src-list{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
+  #src-list::-webkit-scrollbar{width:5px}
+  #src-list::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px}
+  .src-card{
+    background:var(--paper);color:var(--paper-ink);border-radius:3px;
+    padding:10px 12px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;line-height:1.55;
+    box-shadow:0 1px 0 rgba(0,0,0,.4),inset 0 0 0 1px rgba(0,0,0,.05);
+  }
+  .src-card .sid{display:flex;justify-content:space-between;align-items:center;
+    font-size:10px;color:var(--paper-mute);margin-bottom:5px}
+  .src-card .stitle{font-weight:600;font-size:12px;color:var(--paper-ink);margin-bottom:3px}
+  .src-card .smeta{font-size:10.5px;color:var(--paper-mute);line-height:1.6}
+  .src-card .ssnip{margin-top:5px;padding-top:5px;border-top:1px solid rgba(35,33,28,.15);
+                    font-size:10.5px;color:var(--paper-mute)}
+
+  /* ── Toast ── */
+  .toast{
+    position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:200;
+    background:var(--panel2);border:1px solid var(--line);border-radius:3px;
+    padding:9px 16px;font-family:'IBM Plex Mono',monospace;font-size:12px;
+    color:var(--text);box-shadow:0 4px 16px rgba(0,0,0,.5);white-space:nowrap;
+    opacity:0;pointer-events:none;transition:opacity .2s;
+  }
+  .toast.show{opacity:1;pointer-events:auto}
+  .toast.ok{border-color:var(--ok);color:var(--ok)}
+  .toast.err{border-color:var(--danger);color:var(--danger)}
+
+  /* Markdown rendering in messages */
+  .msg-bubble strong{color:var(--text)}
+  .msg-bubble em{font-style:italic;color:var(--mute)}
+  .msg-bubble h4{color:var(--text);font-size:14px;margin:10px 0 4px;font-weight:600}
+  .msg-bubble ul{padding-left:16px;margin:6px 0}
+  .msg-bubble li{margin-bottom:3px}
+  .msg-bubble code{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--faint);
+                    background:rgba(255,255,255,.05);padding:1px 4px;border-radius:2px}
+  .msg-bubble .num-highlight{
+    color:var(--signal);font-family:'IBM Plex Mono',monospace;font-weight:600;
+  }
+  .msg-bubble .country-tag{
+    color:var(--relate);font-family:'IBM Plex Mono',monospace;font-size:12px;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <div class="mark mono">Corte<b>X</b>plorer<span style="color:var(--faint)">/tda</span></div>
+      <div class="tag">Pattern Intelligence</div>
+      <div class="engine-badge">TDA ENGINE</div>
+    </div>
+    <a href="index.html" class="nav-pill">Analysis</a>
+    <a href="dashboard.html" class="nav-pill">Dashboard</a>
+    <a href="chat.html" class="nav-pill active">Chat</a>
+  </header>
+
+  <div class="body">
+
+    <!-- Left sidebar: conversation list -->
+    <div class="sidebar">
+      <button class="new-conv-btn" onclick="newConversation()">
+        <span class="ico">+</span>
+        <span>New Conversation</span>
+      </button>
+      <div class="sidebar-section">Conversations</div>
+      <div class="conv-list" id="conv-list">
+        <!-- populated by JS -->
+      </div>
+    </div>
+
+    <!-- Main area -->
+    <div class="main">
+
+      <!-- Welcome screen -->
+      <div id="welcome-screen">
+        <div class="w-icon">🌍</div>
+        <div>
+          <h2>Ask about Government Aid</h2>
+          <p>Query and reason over the government aid project dataset using natural language. Every answer traces directly to source data — no hallucinations, 100% traceable.</p>
+        </div>
+
+        <div class="suggestions">
+          <button class="sugg" onclick="sendSuggestion(this)">
+            <span class="s-icon">🚨</span>
+            <span class="s-label">Which projects are anomalous?</span>
+            <span class="s-sub">Show the highest-anomaly aid projects by score</span>
+          </button>
+          <button class="sugg" onclick="sendSuggestion(this)">
+            <span class="s-icon">📊</span>
+            <span class="s-label">What is the average cost overrun?</span>
+            <span class="s-sub">Aggregate overrun statistics across the dataset</span>
+          </button>
+          <button class="sugg" onclick="sendSuggestion(this)">
+            <span class="s-icon">🔵</span>
+            <span class="s-label">Show me the largest clusters</span>
+            <span class="s-sub">Which project groups are densest in feature space?</span>
+          </button>
+          <button class="sugg" onclick="sendSuggestion(this)">
+            <span class="s-icon">∞</span>
+            <span class="s-label">Explain the topology</span>
+            <span class="s-sub">What do the circular patterns in the TDA mean?</span>
+          </button>
+          <button class="sugg" onclick="sendSuggestion(this)">
+            <span class="s-icon">🌍</span>
+            <span class="s-label">Which countries have the most failures?</span>
+            <span class="s-sub">Country-level success rate breakdown</span>
+          </button>
+          <button class="sugg" onclick="sendSuggestion(this)">
+            <span class="s-icon">🔍</span>
+            <span class="s-label">What drives anomaly scores?</span>
+            <span class="s-sub">Key features contributing to high anomaly scores</span>
+          </button>
+        </div>
+
+        <div class="w-input-wrap">
+          <input class="w-input" id="w-input" type="text"
+            placeholder="Ask about government aid patterns, anomalies, countries…"
+            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendFromWelcome()}">
+          <button class="w-send" id="w-send" onclick="sendFromWelcome()">↑</button>
+        </div>
+
+        <div style="font-size:11px;color:var(--faint);font-family:'IBM Plex Mono',monospace;letter-spacing:.06em">
+          ✓ ZERO HALLUCINATIONS · 100% TRACEABLE · LOCAL AI
+        </div>
+      </div>
+
+      <!-- Active chat view -->
+      <div id="chat-view">
+        <div class="messages" id="messages"></div>
+        <div class="input-bar">
+          <div class="input-inner">
+            <textarea id="msg-input" rows="1"
+              placeholder="Ask about government aid patterns, anomalies, countries…"
+              onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+            <button class="send-btn" id="send-btn" onclick="sendMessage()">↑</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Source details sidebar -->
+    <div class="src-sidebar" id="src-sidebar">
+      <div class="src-head">
+        <span class="sh-title">Aid Project Sources</span>
+        <button class="sh-close" onclick="closeSources()">×</button>
+      </div>
+      <div id="src-list">
+        <div style="color:var(--faint);font-size:12px;padding:14px;font-family:'IBM Plex Mono',monospace">
+          Click a source chip to view project details here.
+        </div>
+      </div>
+    </div>
+
+  </div><!-- .body -->
+</div><!-- .app -->
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = 'http://localhost:8010';
+
+// ── State ─────────────────────────────────────────────────────────────────
+const CONVERSATIONS = [];
+let activeConv = null;
+let busy = false;
+
+// ── Utilities ──────────────────────────────────────────────────────────────
+function esc(s){ return String(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function renderMarkdown(text){
+  let s = esc(text);
+  // Bold
+  s = s.replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>');
+  // Italic
+  s = s.replace(/\*([^*\n]+)\*/g,'<em>$1</em>');
+  // Code
+  s = s.replace(/`([^`]+)`/g,'<code>$1</code>');
+  // Headers
+  s = s.replace(/^### (.+)$/gm,'<h4>$1</h4>');
+  s = s.replace(/^## (.+)$/gm,'<h4 style="font-size:14px;margin-top:12px">$1</h4>');
+  s = s.replace(/^# (.+)$/gm,'<h4 style="font-size:15px;margin-top:14px">$1</h4>');
+  // Lists
+  s = s.replace(/^[-•]\s+(.+)$/gm,'<li>$1</li>');
+  s = s.replace(/^(\d+)\.\s+(.+)$/gm,'<li><strong>$1.</strong> $2</li>');
+  s = s.replace(/(<li>.*?<\/li>\n?)+/g, m=>`<ul>${m}</ul>`);
+  // Percentage / number highlights
+  s = s.replace(/(\d+(?:\.\d+)?%)/g,'<span class="num-highlight">$1</span>');
+  // Line breaks
+  s = s.replace(/\n/g,'<br>');
+  return s;
+}
+
+function autoResize(el){
+  el.style.height='auto';
+  el.style.height = Math.min(el.scrollHeight, 140) + 'px';
+}
+function handleKey(e){
+  if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); }
+}
+function scrollBottom(){
+  const m = document.getElementById('messages');
+  if(m) m.scrollTop = m.scrollHeight;
+}
+function showToast(msg, type='ok'){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  clearTimeout(t._t);
+  t._t = setTimeout(()=>{ t.className='toast'; }, 4500);
+}
+
+// ── Conversations ──────────────────────────────────────────────────────────
+function newConversation(){
+  const id = 'conv-' + Date.now();
+  const conv = {id, label:'New conversation', history:[], messages:[]};
+  CONVERSATIONS.unshift(conv);
+  setActive(conv);
+  renderConvList();
+}
+
+function setActive(conv){
+  activeConv = conv;
+  document.getElementById('welcome-screen').style.display = 'none';
+  const cv = document.getElementById('chat-view');
+  cv.classList.add('active');
+  const msgs = document.getElementById('messages');
+  msgs.innerHTML = '';
+  conv.messages.forEach(m=>_appendRenderedMsg(m));
+  scrollBottom();
+  renderConvList();
+  document.getElementById('msg-input').focus();
+}
+
+function renderConvList(){
+  const list = document.getElementById('conv-list');
+  if(!CONVERSATIONS.length){
+    list.innerHTML='<div style="padding:14px 17px;font-size:12px;color:var(--faint)">No conversations yet.</div>';
+    return;
+  }
+  list.innerHTML = CONVERSATIONS.map(c=>`
+    <div class="conv-item ${activeConv&&activeConv.id===c.id?'active':''}"
+         onclick="setActive(CONVERSATIONS.find(x=>x.id==='${c.id}'))">
+      <div class="av">${esc(c.label.slice(0,2).toUpperCase())}</div>
+      <div class="cv-text">${esc(c.label)}</div>
+    </div>`).join('');
+}
+
+// ── Welcome screen ────────────────────────────────────────────────────────
+function sendFromWelcome(){
+  const val = document.getElementById('w-input').value.trim();
+  if(!val) return;
+  if(!activeConv) newConversation();
+  document.getElementById('w-input').value = '';
+  _doSend(val);
+}
+
+function sendSuggestion(btn){
+  const label = btn.querySelector('.s-label').textContent.trim();
+  const sub   = btn.querySelector('.s-sub').textContent.trim();
+  if(!activeConv) newConversation();
+  // Show the welcome text as a user message, but send the sub-text as query
+  _doSend(label);
+}
+
+// ── Active chat ────────────────────────────────────────────────────────────
+function sendMessage(){
+  if(busy) return;
+  const input = document.getElementById('msg-input');
+  const text  = input.value.trim();
+  if(!text) return;
+  input.value = '';
+  input.style.height = 'auto';
+  _doSend(text);
+}
+
+async function _doSend(text){
+  if(busy || !activeConv) return;
+  busy = true;
+  document.getElementById('send-btn').disabled = true;
+  document.getElementById('w-send').disabled   = true;
+
+  // Ensure chat view visible
+  document.getElementById('welcome-screen').style.display = 'none';
+  document.getElementById('chat-view').classList.add('active');
+
+  // Label conv from first message
+  if(!activeConv.history.length) activeConv.label = text.slice(0, 45);
+
+  // Render user message
+  const userMsg = {role:'user', content:text};
+  activeConv.messages.push(userMsg);
+  _appendRenderedMsg(userMsg);
+  renderConvList();
+  scrollBottom();
+
+  // Thinking bubble
+  const thinkId = 'think-' + Date.now();
+  const thEl = document.createElement('div');
+  thEl.className = 'msg assistant';
+  thEl.id = thinkId;
+  thEl.innerHTML = `
+    <div class="msg-avatar">ai</div>
+    <div class="msg-wrap">
+      <div class="msg-role">CorteXplorer</div>
+      <div class="msg-bubble">
+        <div class="thinking-dots"><span></span><span></span><span></span></div>
+      </div>
+    </div>`;
+  document.getElementById('messages').appendChild(thEl);
+  scrollBottom();
+
+  try {
+    const resp = await fetch(`${API}/api/chat`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        message: text,
+        history: activeConv.history.slice(-20),
+      }),
+    });
+    if(!resp.ok){
+      const err = await resp.json().catch(()=>({detail:resp.statusText}));
+      throw new Error(err.detail || resp.statusText);
+    }
+    const data = await resp.json();
+
+    // Store in history
+    activeConv.history.push({role:'user', content:text});
+    const answerText = data.answer || data.response || data.text || data.result || JSON.stringify(data);
+    activeConv.history.push({role:'assistant', content:answerText});
+    if(activeConv.history.length > 24) activeConv.history = activeConv.history.slice(-24);
+
+    // Replace thinking bubble
+    thEl.remove();
+    const aiMsg = {
+      role:'assistant',
+      content: answerText,
+      sources: data.sources || data.records || data.evidence || [],
+      traceable: data.traceable !== false,
+    };
+    activeConv.messages.push(aiMsg);
+    _appendRenderedMsg(aiMsg);
+    scrollBottom();
+
+    if(aiMsg.sources && aiMsg.sources.length){
+      renderSources(aiMsg.sources);
+    }
+
+  } catch(err) {
+    thEl.remove();
+    const errMsg = {role:'assistant', content:'Error: ' + err.message, error:true};
+    activeConv.messages.push(errMsg);
+    _appendRenderedMsg(errMsg);
+    showToast('Chat error: ' + err.message, 'err');
+  } finally {
+    busy = false;
+    document.getElementById('send-btn').disabled = false;
+    document.getElementById('w-send').disabled   = false;
+  }
+}
+
+function _appendRenderedMsg(m){
+  const msgs  = document.getElementById('messages');
+  const div   = document.createElement('div');
+  div.className = 'msg ' + m.role;
+
+  const contentHtml = m.role === 'assistant'
+    ? renderMarkdown(m.content)
+    : esc(m.content).replace(/\n/g,'<br>');
+
+  let extra = '';
+  if(m.role === 'assistant' && !m.error){
+    // Source chips
+    const sources = m.sources || [];
+    if(sources.length){
+      const chips = sources.slice(0,8).map((s,i)=>{
+        const label = s.project_id || s.id || s.title || ('Source '+(i+1));
+        return `<span class="source-chip" onclick="jumpToSource(${i})">${esc(String(label).slice(0,24))}</span>`;
+      }).join('');
+      extra += `<div class="source-chips"><span class="chips-label">sources&nbsp;</span>${chips}</div>`;
+    }
+    // Traceable badge
+    if(m.traceable !== false){
+      extra += `<div class="traceable-msg-badge">✓ TRACEABLE</div>`;
+    }
+  }
+
+  div.innerHTML = `
+    <div class="msg-avatar">${m.role==='user'?'you':'ai'}</div>
+    <div class="msg-wrap">
+      <div class="msg-role">${m.role==='user'?'You':'CorteXplorer'}</div>
+      <div class="msg-bubble${m.error?' error':''}">
+        ${contentHtml}${extra}
+      </div>
+    </div>`;
+
+  if(m.sources) div.dataset.sources = JSON.stringify(m.sources);
+  msgs.appendChild(div);
+}
+
+// ── Source sidebar ────────────────────────────────────────────────────────
+function renderSources(sources){
+  const sidebar = document.getElementById('src-sidebar');
+  const list    = document.getElementById('src-list');
+  sidebar.classList.add('open');
+
+  list.innerHTML = sources.slice(0,10).map((s,i)=>{
+    const pid      = s.project_id || s.id || '—';
+    const country  = s.country  || '—';
+    const sector   = s.dac_sector || s.sector || '—';
+    const year     = s.approval_year || s.year || '—';
+    const overrun  = s.cost_overrun_pct != null ? (parseFloat(s.cost_overrun_pct)*100).toFixed(1)+'%' : (s.overrun_pct_display||'—');
+    const priority = s.priority || '—';
+    const snippet  = s.snippet || s.summary || s.detail || '';
+
+    return `<div class="src-card" id="src-card-${i}">
+      <div class="sid">
+        <span>${esc(pid)}</span>
+        <span>${esc(year)}</span>
+      </div>
+      <div class="stitle">${esc(country)} — ${esc(sector.length>32?sector.slice(0,30)+'…':sector)}</div>
+      <div class="smeta">
+        <strong>Overrun:</strong> ${esc(overrun)} &nbsp;
+        <strong>Priority:</strong> ${esc(priority)}
+      </div>
+      ${snippet?`<div class="ssnip">${esc(String(snippet).slice(0,200))}${snippet.length>200?'…':''}</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+function jumpToSource(idx){
+  const sidebar = document.getElementById('src-sidebar');
+  sidebar.classList.add('open');
+  const el = document.getElementById('src-card-' + idx);
+  if(el){
+    el.scrollIntoView({behavior:'smooth', block:'nearest'});
+    el.style.outline = '2px solid var(--chat)';
+    setTimeout(()=>{ el.style.outline=''; }, 1800);
+  }
+}
+
+function closeSources(){
+  document.getElementById('src-sidebar').classList.remove('open');
+}
+
+// ── Init ────────────────────────────────────────────────────────────────────
+renderConvList();
+
+// Verify API health
+fetch(`${API}/api/health`)
+  .then(r=>r.ok ? r.json() : Promise.reject(new Error(r.statusText)))
+  .then(data=>{
+    // API is up — could show a status indicator
+    console.log('API health:', data);
+  })
+  .catch(()=>{
+    // API might not be running — show notice
+    const ws = document.getElementById('welcome-screen');
+    if(ws){
+      const banner = document.createElement('div');
+      banner.style.cssText = `background:rgba(224,82,82,.1);border:1px solid var(--danger);border-radius:4px;
+        padding:8px 14px;color:var(--danger);font-size:12px;font-family:'IBM Plex Mono',monospace;
+        max-width:500px;margin-top:10px;`;
+      banner.textContent = `API unavailable at ${API} — start the backend to enable chat.`;
+      ws.appendChild(banner);
+    }
+  });
+</script>
+</body>
+</html>

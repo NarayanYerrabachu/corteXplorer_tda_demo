@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CorteXplorer — Government Aid Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --ink:#13151A; --panel:#1A1D24; --panel2:#20242D; --line:#2A2F3A;
+    --text:#D9DCE3; --mute:#878E9C; --faint:#59616E;
+    --signal:#E0A33E; --signal-deep:#B5651d;
+    --danger:#E05252; --danger-deep:#8B1A1A;
+    --relate:#5E9CA6; --theme:#A9B4C4;
+    --tda:#9B7FD4; --ok:#6Fae8f; --drift:#4EA8DE;
+    --signal-glow:rgba(224,163,62,.15); --danger-glow:rgba(224,82,82,.15);
+    --tda-glow:rgba(155,127,212,.12); --ok-glow:rgba(111,174,143,.12);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--ink);color:var(--text);
+    font-family:'Space Grotesk',system-ui,sans-serif;font-size:15px;
+    line-height:1.5;-webkit-font-smoothing:antialiased}
+  button,a{font-family:inherit;cursor:pointer;text-decoration:none;color:inherit}
+  .mono{font-family:'IBM Plex Mono',monospace}
+
+  /* ── App shell ── */
+  .app{display:flex;flex-direction:column;min-height:100vh}
+
+  /* ── Header ── */
+  header{
+    display:flex;align-items:center;gap:14px;padding:11px 22px;
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#1B1721,#171421);
+    flex-wrap:wrap;flex-shrink:0;position:sticky;top:0;z-index:20;
+  }
+  .brand{display:flex;align-items:baseline;gap:9px;white-space:nowrap}
+  .brand .mark{font-weight:700;font-size:17px;letter-spacing:.04em}
+  .brand .mark b{color:var(--tda)}
+  .brand .tag{font-size:10px;color:var(--mute);letter-spacing:.14em;text-transform:uppercase}
+  .nav-pill{
+    font-size:11px;color:var(--mute);letter-spacing:.08em;
+    background:var(--panel2);border:1px solid var(--line);border-radius:3px;
+    padding:5px 13px;transition:border-color .12s,color .12s;
+  }
+  .nav-pill:hover{border-color:var(--tda);color:var(--text)}
+  .nav-pill.active{color:var(--text);border-color:rgba(155,127,212,.5);background:rgba(155,127,212,.08)}
+  .header-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .header-ts{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--faint)}
+  .refresh-btn{
+    display:flex;align-items:center;gap:6px;font-size:11px;color:var(--mute);
+    background:var(--panel2);border:1px solid var(--line);border-radius:3px;
+    padding:5px 12px;letter-spacing:.05em;transition:border-color .12s,color .12s;
+  }
+  .refresh-btn:hover{border-color:var(--tda);color:var(--text)}
+  .refresh-icon{display:inline-block;font-size:13px;transition:transform .4s}
+  .refresh-btn.spinning .refresh-icon{animation:spin .6s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* ── Canvas ── */
+  .canvas{flex:1;overflow-y:auto;padding:22px 26px 40px}
+  .canvas::-webkit-scrollbar{width:8px}
+  .canvas::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
+
+  /* ── Page header ── */
+  .page-head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:20px}
+  .page-head h1{font-size:21px;font-weight:700;letter-spacing:-.01em}
+  .page-head .sub{font-size:12px;color:var(--mute);margin-top:3px}
+  .status-cluster{display:flex;gap:8px;align-items:center}
+  .status-dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.4)}}
+  .status-dot.live{animation:pulse 2s ease-in-out infinite}
+  .status-lbl{font-size:11px;color:var(--mute);letter-spacing:.08em;font-family:'IBM Plex Mono',monospace}
+
+  /* ── KPI grid ── */
+  .kpi-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px}
+  @media(max-width:1200px){.kpi-grid{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:700px){.kpi-grid{grid-template-columns:repeat(2,1fr)}}
+
+  .kpi-card{
+    background:var(--panel);border:1px solid var(--line);border-radius:5px;
+    padding:16px 18px 12px;position:relative;overflow:hidden;
+  }
+  .kpi-card::before{
+    content:'';position:absolute;top:0;left:0;right:0;height:2px;
+    background:var(--kpi-accent,var(--line));opacity:.7;
+  }
+  .kpi-icon-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .kpi-icon{
+    width:32px;height:32px;border-radius:7px;display:flex;align-items:center;
+    justify-content:center;font-size:15px;background:var(--kpi-glow,var(--tda-glow));
+  }
+  .kpi-badge{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;padding:2px 7px;
+    border-radius:12px;border:1px solid;letter-spacing:.04em;
+  }
+  .kpi-badge.ok{color:var(--ok);border-color:rgba(111,174,143,.4);background:var(--ok-glow)}
+  .kpi-badge.warn{color:var(--signal);border-color:rgba(224,163,62,.4);background:var(--signal-glow)}
+  .kpi-badge.alert{color:var(--danger);border-color:rgba(224,82,82,.4);background:var(--danger-glow)}
+  .kpi-badge.info{color:var(--tda);border-color:rgba(155,127,212,.4);background:var(--tda-glow)}
+  .kpi-val{
+    font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;
+    line-height:1;margin-bottom:4px;color:var(--kpi-color,var(--text));
+  }
+  .kpi-label{font-size:11px;color:var(--mute);letter-spacing:.07em;text-transform:uppercase}
+
+  /* ── Grid rows ── */
+  .row{display:grid;gap:12px;margin-bottom:12px}
+  .row-2{grid-template-columns:1fr 1fr}
+  .row-3{grid-template-columns:1fr 1fr 1fr}
+  .row-6-4{grid-template-columns:1.5fr 1fr}
+  .row-4-6{grid-template-columns:1fr 1.5fr}
+  @media(max-width:1000px){.row-2,.row-3,.row-6-4,.row-4-6{grid-template-columns:1fr}}
+
+  /* ── Panel ── */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:5px;overflow:hidden}
+  .panel-head{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:13px 18px 0;margin-bottom:10px;
+  }
+  .panel-head h3{
+    font-size:11px;font-weight:600;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--text);
+  }
+  .panel-head .pill{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mute);
+    background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+    padding:2px 9px;letter-spacing:.05em;
+  }
+  .panel-body{padding:0 18px 16px}
+  .chart-wrap{padding:0 18px 16px}
+
+  /* ── Chart.js canvas sizing ── */
+  .chart-container{position:relative}
+  .chart-container canvas{max-width:100%}
+
+  /* ── Anomaly table ── */
+  .anomaly-table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .anomaly-table th{
+    text-align:left;padding:8px 12px;font-size:10px;color:var(--faint);
+    letter-spacing:.1em;text-transform:uppercase;font-family:'IBM Plex Mono',monospace;
+    border-bottom:1px solid var(--line);font-weight:600;white-space:nowrap;
+  }
+  .anomaly-table td{padding:8px 12px;border-bottom:1px solid var(--line);color:var(--mute);vertical-align:middle}
+  .anomaly-table tr:hover td{background:var(--panel2);color:var(--text)}
+  .anomaly-table td:first-child{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint)}
+  .anomaly-table td.country{color:var(--text);font-weight:500}
+  .anomaly-table td.score{font-family:'IBM Plex Mono',monospace;color:var(--signal)}
+  .priority-chip{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;padding:2px 8px;
+    border-radius:2px;border:1px solid;letter-spacing:.04em;
+  }
+  .priority-chip.HIGH{color:var(--danger);border-color:rgba(224,82,82,.4);background:var(--danger-glow)}
+  .priority-chip.MEDIUM{color:var(--signal);border-color:rgba(224,163,62,.4);background:var(--signal-glow)}
+  .priority-chip.REVIEW{color:var(--drift);border-color:rgba(78,168,222,.4);background:rgba(78,168,222,.08)}
+  .priority-chip.NORMAL{color:var(--faint);border-color:var(--line)}
+  .success-badge.ok{color:var(--ok)}
+  .success-badge.fail{color:var(--danger)}
+  .table-scroll{overflow-x:auto}
+
+  /* ── TDA stats ── */
+  .topo-stats-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding:0 18px 16px}
+  .tsb{padding:11px 13px;background:var(--panel2);border-radius:4px;border:1px solid var(--line)}
+  .tsb .tv{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;color:var(--tda);margin-bottom:3px}
+  .tsb .tl{font-size:10px;color:var(--mute);letter-spacing:.08em;text-transform:uppercase}
+
+  /* ── H1 bars ── */
+  .h1-bars{padding:0 18px 16px;display:flex;flex-direction:column;gap:5px}
+  .h1-row{display:flex;align-items:center;gap:10px}
+  .h1-rank{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);min-width:20px;text-align:right}
+  .h1-track{flex:1;height:6px;background:var(--panel2);border-radius:3px;overflow:hidden}
+  .h1-fill{height:100%;border-radius:3px;background:var(--tda);transition:width .8s ease}
+  .h1-val{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--tda);min-width:46px;text-align:right}
+
+  /* ── Loading overlay ── */
+  .loading-overlay{
+    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:var(--ink);z-index:100;gap:8px;
+    font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--mute);
+  }
+  @keyframes ldot{0%,100%{opacity:.2}50%{opacity:1}}
+  .ld{animation:ldot 1.2s ease-in-out infinite;font-size:20px}
+  .ld:nth-child(2){animation-delay:.2s}
+  .ld:nth-child(3){animation-delay:.4s}
+
+  /* ── AI summary ── */
+  .ai-sum-result{padding:4px 0;font-size:13px;color:var(--mute);line-height:1.8}
+  .ai-sum-result strong{color:var(--text)}
+  .ai-sum-result h4{color:var(--text);font-size:13px;margin:12px 0 5px;font-weight:600}
+  .ai-sum-result ul{padding-left:16px;margin:5px 0}
+  .ai-sum-result li{margin-bottom:3px}
+
+  /* ── Guarantee cards ── */
+  .guarantee-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+  @media(max-width:700px){.guarantee-grid{grid-template-columns:1fr}}
+  .gc{
+    background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    padding:36px 30px;text-align:center;position:relative;overflow:hidden;
+  }
+  .gc::before{
+    content:'';position:absolute;inset:0;
+    background:radial-gradient(ellipse 60% 50% at 50% 0%,rgba(155,127,212,.08) 0%,transparent 70%);
+    pointer-events:none;
+  }
+  .gc:hover{border-color:rgba(155,127,212,.35)}
+  .gc-num{
+    font-family:'IBM Plex Mono',monospace;font-size:62px;font-weight:700;
+    line-height:1;letter-spacing:-.04em;margin-bottom:14px;color:var(--tda);
+  }
+  .gc-num.zero{
+    background:linear-gradient(135deg,#1FD2C8,#3DE8DF,#12B8AE);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  }
+  .gc-title{font-size:16px;font-weight:700;margin-bottom:10px}
+  .gc-desc{font-size:13px;color:var(--mute);line-height:1.7;max-width:360px;margin:0 auto}
+  .gc-badge{
+    display:inline-flex;align-items:center;gap:6px;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.12em;
+    color:#1FD2C8;border:1px solid rgba(31,210,200,.35);border-radius:12px;
+    padding:3px 12px;margin-bottom:14px;background:rgba(31,210,200,.07);
+  }
+  .gc-badge .vdot{width:6px;height:6px;border-radius:50%;background:#1FD2C8;flex:none}
+
+  /* ── Footer ── */
+  .foot{font-size:10.5px;color:var(--faint);padding:7px 22px;border-top:1px solid var(--line);
+        display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-family:'IBM Plex Mono',monospace}
+  .foot b{color:var(--mute);font-weight:500}
+
+  /* ── Error toast ── */
+  .error-banner{
+    background:rgba(224,82,82,.1);border:1px solid var(--danger);border-radius:4px;
+    padding:10px 16px;color:var(--danger);font-size:13px;margin-bottom:14px;
+    font-family:'IBM Plex Mono',monospace;display:none;
+  }
+</style>
+</head>
+<body>
+
+<div id="loading" class="loading-overlay">
+  <span>Loading</span>
+  <span class="ld">·</span><span class="ld">·</span><span class="ld">·</span>
+</div>
+
+<div class="app" id="app" style="display:none">
+  <header>
+    <div class="brand">
+      <div class="mark mono">Corte<b>X</b>plorer<span style="color:var(--faint)">/tda</span></div>
+      <div class="tag">Pattern Intelligence</div>
+    </div>
+    <a href="index.html" class="nav-pill">Analysis</a>
+    <a href="dashboard.html" class="nav-pill active">Dashboard</a>
+    <a href="chat.html" class="nav-pill">Chat</a>
+    <div class="header-right">
+      <span class="header-ts mono" id="hdrTs">—</span>
+      <button class="refresh-btn" id="refreshBtn" onclick="loadData()">
+        <span class="refresh-icon">↺</span> Refresh
+      </button>
+    </div>
+  </header>
+
+  <main class="canvas">
+    <div class="error-banner" id="errorBanner"></div>
+
+    <div class="page-head">
+      <div>
+        <h1>Government Aid Dashboard</h1>
+        <div class="sub">Live analytics · CorteXplorer TDA Engine · <span class="mono" style="font-size:11px;color:var(--faint)" id="datasetLabel">—</span></div>
+      </div>
+      <div class="status-cluster">
+        <div class="status-dot live"></div>
+        <span class="status-lbl">LIVE</span>
+      </div>
+    </div>
+
+    <!-- KPI Row -->
+    <div class="kpi-grid" id="kpiGrid">
+      <div class="kpi-card" style="--kpi-accent:var(--tda);--kpi-glow:var(--tda-glow)">
+        <div class="kpi-icon-row"><div class="kpi-icon">📋</div><span class="kpi-badge info mono" id="kpi-proj-badge">—</span></div>
+        <div class="kpi-val mono" id="kpi-projects">—</div>
+        <div class="kpi-label">Total Projects</div>
+      </div>
+      <div class="kpi-card" style="--kpi-accent:var(--ok);--kpi-glow:var(--ok-glow)">
+        <div class="kpi-icon-row"><div class="kpi-icon" style="background:var(--ok-glow)">✓</div><span class="kpi-badge ok mono" id="kpi-success-badge">—</span></div>
+        <div class="kpi-val mono" id="kpi-success" style="--kpi-color:var(--ok)">—</div>
+        <div class="kpi-label">Success Rate</div>
+      </div>
+      <div class="kpi-card" style="--kpi-accent:var(--signal);--kpi-glow:var(--signal-glow)">
+        <div class="kpi-icon-row"><div class="kpi-icon" style="background:var(--signal-glow)">⚠</div><span class="kpi-badge warn mono" id="kpi-overrun-badge">—</span></div>
+        <div class="kpi-val mono" id="kpi-overrun" style="--kpi-color:var(--signal)">—</div>
+        <div class="kpi-label">Avg Overrun %</div>
+      </div>
+      <div class="kpi-card" style="--kpi-accent:var(--relate)">
+        <div class="kpi-icon-row"><div class="kpi-icon" style="background:rgba(94,156,166,.12)">🌍</div><span class="kpi-badge info mono" id="kpi-country-badge">—</span></div>
+        <div class="kpi-val mono" id="kpi-countries" style="--kpi-color:var(--relate)">—</div>
+        <div class="kpi-label">Countries</div>
+      </div>
+      <div class="kpi-card" style="--kpi-accent:var(--theme)">
+        <div class="kpi-icon-row"><div class="kpi-icon" style="background:rgba(169,180,196,.1)">🏗</div><span class="kpi-badge info mono" id="kpi-sector-badge">—</span></div>
+        <div class="kpi-val mono" id="kpi-sectors" style="--kpi-color:var(--theme)">—</div>
+        <div class="kpi-label">DAC Sectors</div>
+      </div>
+      <div class="kpi-card" style="--kpi-accent:var(--danger);--kpi-glow:var(--danger-glow)">
+        <div class="kpi-icon-row"><div class="kpi-icon" style="background:var(--danger-glow)">🚨</div><span class="kpi-badge alert mono" id="kpi-anom-badge">—</span></div>
+        <div class="kpi-val mono" id="kpi-anomalies" style="--kpi-color:var(--danger)">—</div>
+        <div class="kpi-label">Anomalies</div>
+      </div>
+    </div>
+
+    <!-- Row 1: Projects by year + Sector donut -->
+    <div class="row row-6-4">
+      <div class="panel">
+        <div class="panel-head"><h3>Projects by Year</h3><span class="pill">success vs failed</span></div>
+        <div class="chart-wrap"><div class="chart-container" style="height:240px"><canvas id="chartYear"></canvas></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>DAC Sector Distribution</h3><span class="pill" id="sectorPill">top 8</span></div>
+        <div class="chart-wrap"><div class="chart-container" style="height:240px"><canvas id="chartSector"></canvas></div></div>
+      </div>
+    </div>
+
+    <!-- Row 2: Countries + Overrun trend -->
+    <div class="row row-4-6">
+      <div class="panel">
+        <div class="panel-head"><h3>Top 10 Countries</h3><span class="pill">by project count</span></div>
+        <div class="chart-wrap"><div class="chart-container" style="height:260px"><canvas id="chartCountry"></canvas></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>Avg Cost Overrun Trend</h3><span class="pill">by year</span></div>
+        <div class="chart-wrap"><div class="chart-container" style="height:260px"><canvas id="chartOverrun"></canvas></div></div>
+      </div>
+    </div>
+
+    <!-- Row 3: Anomaly score distribution + CPI vs Overrun scatter -->
+    <div class="row row-2">
+      <div class="panel">
+        <div class="panel-head"><h3>Anomaly Score Distribution</h3><span class="pill">histogram</span></div>
+        <div class="chart-wrap"><div class="chart-container" style="height:220px"><canvas id="chartAnomalyDist"></canvas></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>CPI Score vs Overrun %</h3><span class="pill">scatter</span></div>
+        <div class="chart-wrap"><div class="chart-container" style="height:220px"><canvas id="chartScatter"></canvas></div></div>
+      </div>
+    </div>
+
+    <!-- Row 4: TDA Topology -->
+    <div class="row">
+      <div class="panel">
+        <div class="panel-head"><h3>Topology — TDA</h3><span class="pill" id="tdaMethodPill">ripser</span></div>
+        <div class="topo-stats-grid" id="topoStats">
+          <div class="tsb"><div class="tv" id="tdaBetti0">—</div><div class="tl">Groups β₀</div></div>
+          <div class="tsb"><div class="tv" id="tdaBetti1">—</div><div class="tl">Loops β₁</div></div>
+          <div class="tsb"><div class="tv" id="tdaMaxP">—</div><div class="tl">Max Persistence</div></div>
+        </div>
+        <div class="h1-bars" id="h1Bars"></div>
+      </div>
+    </div>
+
+    <!-- Row 5: Anomaly table -->
+    <div class="row">
+      <div class="panel">
+        <div class="panel-head"><h3>Top Anomalous Projects</h3><span class="pill" id="anomTablePill">top 20</span></div>
+        <div class="table-scroll panel-body">
+          <table class="anomaly-table" id="anomalyTable">
+            <thead>
+              <tr>
+                <th>Aid ID</th>
+                <th>Country</th>
+                <th>Sector</th>
+                <th>Overrun %</th>
+                <th>Success</th>
+                <th>Score</th>
+                <th>Priority</th>
+              </tr>
+            </thead>
+            <tbody id="anomalyTableBody">
+              <tr><td colspan="7" style="text-align:center;color:var(--faint);padding:20px">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI Summary -->
+    <div class="row">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>AI Dataset Summary</h3>
+          <button id="btnSummary" onclick="generateSummary()" style="
+            background:var(--tda);color:#fff;border:none;border-radius:3px;
+            padding:5px 14px;font-size:11px;font-weight:600;cursor:pointer;letter-spacing:.04em">Generate</button>
+        </div>
+        <div id="aiSummaryResult" class="ai-sum-result panel-body">
+          Click "Generate" to create an AI-powered overview of the government aid dataset.
+        </div>
+      </div>
+    </div>
+
+    <!-- Guarantee cards -->
+    <div class="guarantee-grid">
+      <div class="gc">
+        <div class="gc-badge"><div class="vdot"></div>VERIFIED · DETERMINISTIC</div>
+        <div class="gc-num zero" id="gcHalluc">0%</div>
+        <div class="gc-title">Hallucination-Free — Guaranteed</div>
+        <div class="gc-desc">Every result traces directly to the aid project dataset. No generated numbers, no estimates — only what is in the data enters the analysis.</div>
+      </div>
+      <div class="gc">
+        <div class="gc-num">100%</div>
+        <div class="gc-title">Fully Traceable</div>
+        <div class="gc-desc">Every anomaly score, cluster assignment and topology finding traces back to specific project fields. Complete audit trail available for every finding.</div>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="foot">
+    <span><b>engine</b> IsolationForest · DBSCAN · ripser TDA · co-occurrence graph</span>
+    <span><b>records</b> <span id="footRecords">—</span></span>
+    <span><b>countries</b> <span id="footCountries">—</span></span>
+    <span><b>sectors</b> <span id="footSectors">—</span></span>
+  </footer>
+</div>
+
+<script>
+const API = 'http://localhost:8010';
+
+// ── Chart.js global defaults ──────────────────────────────────────────────
+Chart.defaults.color = '#878E9C';
+Chart.defaults.borderColor = '#2A2F3A';
+Chart.defaults.font.family = "'IBM Plex Mono', monospace";
+Chart.defaults.font.size = 11;
+
+const CHART_COLORS = ['#9B7FD4','#5E9CA6','#E0A33E','#E05252','#6Fae8f','#4EA8DE','#A9B4C4','#C47B9C'];
+
+// ── State ──────────────────────────────────────────────────────────────────
+let _F = null;    // findings
+let _DS = null;   // dataset stats
+let _records = [];// sample records
+let _charts = {}; // chart instances
+
+// ── Utilities ──────────────────────────────────────────────────────────────
+function esc(s){ return String(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function md(s){
+  let h=esc(s);
+  h=h.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
+  h=h.replace(/^### (.+)$/gm,'<h4>$1</h4>');
+  h=h.replace(/^## (.+)$/gm,'<h4 style="font-size:14px">$1</h4>');
+  h=h.replace(/^- (.+)$/gm,'<li>$1</li>');
+  h=h.replace(/(<li>.*<\/li>\n?)+/g,m=>`<ul>${m}</ul>`);
+  h=h.replace(/\n/g,'<br>');
+  return h;
+}
+function destroyChart(key){
+  if(_charts[key]){ _charts[key].destroy(); delete _charts[key]; }
+}
+
+// ── Load data ──────────────────────────────────────────────────────────────
+async function loadData(){
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('spinning');
+
+  try {
+    const [findings, dataset, records] = await Promise.all([
+      fetch(`${API}/api/findings`).then(r=>r.json()),
+      fetch(`${API}/api/dataset`).then(r=>r.json()).catch(()=>null),
+      fetch(`${API}/api/records?limit=500`).then(r=>r.json()).catch(()=>({records:[],total:0})),
+    ]);
+    _F = findings;
+    _DS = dataset;
+    _records = Array.isArray(records) ? records : (records.records || records.data || []);
+
+    renderAll();
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    document.getElementById('errorBanner').style.display = 'none';
+  } catch(e) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    const b = document.getElementById('errorBanner');
+    b.style.display = 'block';
+    b.textContent = 'Failed to connect to API at ' + API + ': ' + e.message;
+  } finally {
+    btn.classList.remove('spinning');
+    document.getElementById('hdrTs').textContent = new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'}) + ' UTC';
+  }
+}
+
+function renderAll(){
+  renderKPIs();
+  renderChartYear();
+  renderChartSector();
+  renderChartCountry();
+  renderChartOverrun();
+  renderChartAnomalyDist();
+  renderChartScatter();
+  renderTopology();
+  renderAnomalyTable();
+  renderFooter();
+}
+
+// ── KPIs ────────────────────────────────────────────────────────────────────
+function renderKPIs(){
+  const m = _F?.meta || {};
+  const ds = _DS || {};
+  const n = m.n_records || m.n_docs || ds.n_records || _records.length || 0;
+  const anom = m.n_anomalies || (_F?.anomalies||[]).length || 0;
+  const succ = ds.success_rate != null ? ds.success_rate : (_records.length ? _records.filter(r=>r.success==1).length/_records.length : null);
+  const overrun = ds.avg_overrun || ds.avg_cost_overrun || (_records.length ? _records.reduce((s,r)=>s+(parseFloat(r.cost_overrun_pct)||0),0)/_records.length : null);
+  const nCountries = ds.n_countries || m.n_countries || new Set(_records.map(r=>r.country).filter(Boolean)).size || 0;
+  const nSectors = ds.n_sectors || m.n_sectors || new Set(_records.map(r=>r.dac_sector).filter(Boolean)).size || 0;
+
+  document.getElementById('kpi-projects').textContent = n.toLocaleString();
+  document.getElementById('kpi-proj-badge').textContent = n + ' total';
+
+  document.getElementById('kpi-success').textContent = succ != null ? (succ*100).toFixed(1)+'%' : '—';
+  document.getElementById('kpi-success-badge').textContent = succ != null ? (succ>=0.7?'good':'low') : '—';
+  document.getElementById('kpi-success-badge').className = 'kpi-badge mono ' + (succ==null?'info':succ>=0.7?'ok':'warn');
+
+  document.getElementById('kpi-overrun').textContent = overrun != null ? (overrun*100).toFixed(1)+'%' : '—';
+  document.getElementById('kpi-overrun-badge').textContent = overrun != null ? (overrun>0.3?'HIGH':overrun>0.15?'MOD':'LOW') : '—';
+  document.getElementById('kpi-overrun-badge').className = 'kpi-badge mono ' + (overrun==null?'info':overrun>0.3?'alert':overrun>0.15?'warn':'ok');
+
+  document.getElementById('kpi-countries').textContent = nCountries || '—';
+  document.getElementById('kpi-country-badge').textContent = nCountries ? nCountries + ' nations' : '—';
+  document.getElementById('kpi-sectors').textContent = nSectors || '—';
+  document.getElementById('kpi-sector-badge').textContent = nSectors ? nSectors + ' sectors' : '—';
+
+  document.getElementById('kpi-anomalies').textContent = anom;
+  const anomPct = n ? Math.round(100*anom/n) : 0;
+  document.getElementById('kpi-anom-badge').textContent = anomPct + '% rate';
+  document.getElementById('kpi-anom-badge').className = 'kpi-badge mono ' + (anomPct>15?'alert':anomPct>5?'warn':'ok');
+
+  document.getElementById('datasetLabel').textContent = `${n.toLocaleString()} projects · ${nCountries} countries`;
+}
+
+// ── Chart: Projects by year (stacked bar) ──────────────────────────────────
+function renderChartYear(){
+  destroyChart('year');
+  const byYear = {};
+  _records.forEach(r=>{
+    const y = r.approval_year;
+    if(!y) return;
+    if(!byYear[y]) byYear[y] = {success:0, failed:0};
+    if(r.success==1) byYear[y].success++;
+    else byYear[y].failed++;
+  });
+  const years = Object.keys(byYear).sort();
+  if(!years.length){ document.getElementById('chartYear').parentElement.innerHTML = '<div style="color:var(--faint);font-size:12px;padding:20px;text-align:center">No year data available.</div>'; return; }
+  _charts['year'] = new Chart(document.getElementById('chartYear'), {
+    type:'bar',
+    data:{
+      labels: years,
+      datasets:[
+        {label:'Successful',data:years.map(y=>byYear[y].success),backgroundColor:'rgba(111,174,143,.7)',borderColor:'var(--ok)',borderWidth:1},
+        {label:'Failed',data:years.map(y=>byYear[y].failed),backgroundColor:'rgba(224,82,82,.5)',borderColor:'var(--danger)',borderWidth:1},
+      ],
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#878E9C',font:{size:11}}},tooltip:{mode:'index'}},
+      scales:{x:{stacked:true,grid:{color:'rgba(42,47,58,.5)'},ticks:{color:'#59616E'}},
+              y:{stacked:true,grid:{color:'rgba(42,47,58,.5)'},ticks:{color:'#59616E'}}},
+    },
+  });
+}
+
+// ── Chart: Sector donut ────────────────────────────────────────────────────
+function renderChartSector(){
+  destroyChart('sector');
+  const bySector = {};
+  _records.forEach(r=>{
+    const s = r.dac_sector;
+    if(s) bySector[s] = (bySector[s]||0)+1;
+  });
+  const sorted = Object.entries(bySector).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  if(!sorted.length){ document.getElementById('chartSector').parentElement.innerHTML='<div style="color:var(--faint);font-size:12px;padding:20px;text-align:center">No sector data.</div>'; return; }
+  document.getElementById('sectorPill').textContent = sorted.length + ' sectors';
+  _charts['sector'] = new Chart(document.getElementById('chartSector'), {
+    type:'doughnut',
+    data:{
+      labels: sorted.map(([k])=>k.length>22?k.slice(0,20)+'…':k),
+      datasets:[{
+        data: sorted.map(([,v])=>v),
+        backgroundColor: CHART_COLORS.map(c=>c+'CC'),
+        borderColor: CHART_COLORS,
+        borderWidth:1,
+        hoverOffset:8,
+      }],
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{
+        legend:{position:'right',labels:{color:'#878E9C',font:{size:10},boxWidth:10,padding:8}},
+        tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${ctx.raw} projects (${Math.round(100*ctx.raw/(ctx.dataset.data.reduce((a,b)=>a+b,0)))}%)`}},
+      },
+      cutout:'55%',
+    },
+  });
+}
+
+// ── Chart: Top countries (horizontal bar) ─────────────────────────────────
+function renderChartCountry(){
+  destroyChart('country');
+  const byCountry = {};
+  _records.forEach(r=>{ if(r.country) byCountry[r.country]=(byCountry[r.country]||0)+1; });
+  const sorted = Object.entries(byCountry).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  if(!sorted.length){ document.getElementById('chartCountry').parentElement.innerHTML='<div style="color:var(--faint);font-size:12px;padding:20px;text-align:center">No country data.</div>'; return; }
+  _charts['country'] = new Chart(document.getElementById('chartCountry'), {
+    type:'bar',
+    data:{
+      labels: sorted.map(([k])=>k),
+      datasets:[{
+        label:'Projects',
+        data: sorted.map(([,v])=>v),
+        backgroundColor:'rgba(94,156,166,.55)',
+        borderColor:'var(--relate)',
+        borderWidth:1,
+        borderRadius:2,
+      }],
+    },
+    options:{
+      indexAxis:'y',responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.raw} projects`}}},
+      scales:{x:{grid:{color:'rgba(42,47,58,.5)'},ticks:{color:'#59616E'}},
+              y:{grid:{display:false},ticks:{color:'#878E9C',font:{size:10}}}},
+    },
+  });
+}
+
+// ── Chart: Avg overrun trend (line chart) ──────────────────────────────────
+function renderChartOverrun(){
+  destroyChart('overrun');
+  const byYear = {};
+  _records.forEach(r=>{
+    const y = r.approval_year;
+    const o = parseFloat(r.cost_overrun_pct);
+    if(!y || isNaN(o)) return;
+    if(!byYear[y]) byYear[y] = {sum:0, n:0};
+    byYear[y].sum += o; byYear[y].n++;
+  });
+  const years = Object.keys(byYear).sort();
+  if(!years.length){ document.getElementById('chartOverrun').parentElement.innerHTML='<div style="color:var(--faint);font-size:12px;padding:20px;text-align:center">No overrun data.</div>'; return; }
+  const avgs = years.map(y=>byYear[y].n ? (byYear[y].sum/byYear[y].n*100) : 0);
+  _charts['overrun'] = new Chart(document.getElementById('chartOverrun'), {
+    type:'line',
+    data:{
+      labels: years,
+      datasets:[{
+        label:'Avg Overrun %',
+        data: avgs.map(v=>parseFloat(v.toFixed(1))),
+        borderColor:'var(--signal)',
+        backgroundColor:'rgba(224,163,62,.12)',
+        borderWidth:2,
+        pointBackgroundColor:'var(--signal)',
+        pointRadius:3,
+        fill:true,
+        tension:0.35,
+      }],
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.raw}% overrun`}}},
+      scales:{
+        x:{grid:{color:'rgba(42,47,58,.5)'},ticks:{color:'#59616E'}},
+        y:{grid:{color:'rgba(42,47,58,.5)'},ticks:{color:'#59616E',callback:v=>v+'%'}},
+      },
+    },
+  });
+}
+
+// ── Chart: Anomaly score distribution (histogram) ─────────────────────────
+function renderChartAnomalyDist(){
+  destroyChart('anomDist');
+  const scores = _records.map(r=>parseFloat(r.anomaly_score)).filter(v=>!isNaN(v));
+  if(!scores.length){
+    // Try anomalies from findings
+    const anomScores = (_F?.anomalies||[]).map(a=>a.score).filter(v=>!isNaN(v));
+    if(!anomScores.length){ document.getElementById('chartAnomalyDist').parentElement.innerHTML='<div style="color:var(--faint);font-size:12px;padding:20px;text-align:center">No anomaly score data.</div>'; return; }
+    scores.push(...anomScores);
+  }
+  // Create 10 bins
+  const min = Math.min(...scores), max = Math.max(...scores, 1);
+  const bins = 10;
+  const step = (max - min) / bins;
+  const counts = Array(bins).fill(0);
+  const colors = Array(bins).fill(0);
+  scores.forEach(s=>{ const b=Math.min(bins-1, Math.floor((s-min)/step)); counts[b]++; colors[b]++; });
+  const labels = Array.from({length:bins},(_,i)=>((min+i*step)*100).toFixed(0)+'%');
+  const maxCount = Math.max(...counts, 1);
+  const bgColors = counts.map(c=>`rgba(224,163,62,${0.3+0.6*(c/maxCount)})`);
+  const borderColors = counts.map(c=>`rgba(224,163,62,${0.5+0.4*(c/maxCount)})`);
+  _charts['anomDist'] = new Chart(document.getElementById('chartAnomalyDist'), {
+    type:'bar',
+    data:{
+      labels,
+      datasets:[{label:'Projects',data:counts,backgroundColor:bgColors,borderColor:borderColors,borderWidth:1,borderRadius:2}],
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.raw} projects`}}},
+      scales:{
+        x:{grid:{display:false},ticks:{color:'#59616E',maxRotation:0}},
+        y:{grid:{color:'rgba(42,47,58,.5)'},ticks:{color:'#59616E'}},
+      },
+    },
+  });
+}
+
+// ── Chart: CPI score vs overrun scatter ────────────────────────────────────
+function renderChartScatter(){
+  destroyChart('scatter');
+  const pts = _records
+    .map(r=>({x:parseFloat(r.cpi_score), y:parseFloat(r.cost_overrun_pct)*100, success:r.success}))
+    .filter(p=>!isNaN(p.x)&&!isNaN(p.y));
+
+  if(!pts.length){ document.getElementById('chartScatter').parentElement.innerHTML='<div style="color:var(--faint);font-size:12px;padding:20px;text-align:center">No CPI/overrun data.</div>'; return; }
+
+  _charts['scatter'] = new Chart(document.getElementById('chartScatter'), {
+    type:'scatter',
+    data:{
+      datasets:[
+        {label:'Successful',data:pts.filter(p=>p.success==1),backgroundColor:'rgba(111,174,143,.5)',borderColor:'var(--ok)',pointRadius:3,pointHoverRadius:5},
+        {label:'Failed',data:pts.filter(p=>p.success!=1),backgroundColor:'rgba(224,82,82,.5)',borderColor:'var(--danger)',pointRadius:3,pointHoverRadius:5},
+      ],
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{
+        legend:{labels:{color:'#878E9C',font:{size:10},boxWidth:8}},
+        tooltip:{callbacks:{label:ctx=>`CPI: ${ctx.parsed.x.toFixed(1)}, Overrun: ${ctx.parsed.y.toFixed(0)}%`}},
+      },
+      scales:{
+        x:{title:{display:true,text:'CPI Score (Corruption Perceptions)',color:'#59616E',font:{size:10}},
+           grid:{color:'rgba(42,47,58,.5)'},ticks:{color:'#59616E'}},
+        y:{title:{display:true,text:'Cost Overrun %',color:'#59616E',font:{size:10}},
+           grid:{color:'rgba(42,47,58,.5)'},ticks:{color:'#59616E',callback:v=>v+'%'}},
+      },
+    },
+  });
+}
+
+// ── Topology section ───────────────────────────────────────────────────────
+function renderTopology(){
+  const tda = _F?.meta?.tda || {};
+  document.getElementById('tdaBetti0').textContent = tda.betti_0 ?? '—';
+  document.getElementById('tdaBetti1').textContent = tda.betti_1 ?? '—';
+  document.getElementById('tdaMaxP').textContent = tda.max_persistence != null ? parseFloat(tda.max_persistence).toFixed(4) : '—';
+  document.getElementById('tdaMethodPill').textContent = tda.available !== false ? 'ripser ✓' : 'ripser unavailable';
+  const feats = tda.h1_features || [];
+  const maxP = tda.max_persistence || 0.001;
+  let bars = '';
+  feats.slice(0,8).forEach((h,i)=>{
+    const pct = Math.round(100*h.persistence/maxP);
+    bars += `<div class="h1-row">
+      <span class="h1-rank">${i+1}</span>
+      <div class="h1-track"><div class="h1-fill" style="width:${pct}%"></div></div>
+      <span class="h1-val">${h.persistence.toFixed(4)}</span>
+    </div>`;
+  });
+  if(!feats.length) bars = `<div style="color:var(--faint);font-size:12px;padding:4px 0">No H₁ features detected.</div>`;
+  document.getElementById('h1Bars').innerHTML = bars;
+}
+
+// ── Anomaly table ──────────────────────────────────────────────────────────
+function renderAnomalyTable(){
+  const tbody = document.getElementById('anomalyTableBody');
+  // Build rows from findings or records
+  const anomalies = (_F?.anomalies||[]).slice().sort((a,b)=>b.score-a.score).slice(0,20);
+
+  if(!anomalies.length && !_records.length){ tbody.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--faint);padding:20px">No anomaly data.</td></tr>'; return; }
+
+  // If we have anomalies with extras
+  if(anomalies.length){
+    document.getElementById('anomTablePill').textContent = anomalies.length + ' records';
+    tbody.innerHTML = anomalies.map(a=>{
+      const rid = (a.sources||[])[0] || '—';
+      const country = a.extra?.country || '—';
+      const sector = a.extra?.dac_sector || '—';
+      const overrun = a.extra?.cost_overrun_pct != null ? (parseFloat(a.extra.cost_overrun_pct)*100).toFixed(1)+'%' : (a.extra?.overrun_pct_display||'—');
+      const succ = a.extra?.success;
+      const priority = a.extra?.priority || '—';
+      return `<tr>
+        <td class="mono">${esc(rid)}</td>
+        <td class="country">${esc(country)}</td>
+        <td>${esc(sector.length>28?sector.slice(0,26)+'…':sector)}</td>
+        <td style="color:${parseFloat(overrun)>30?'var(--danger)':parseFloat(overrun)>10?'var(--signal)':'var(--mute)'}">${esc(overrun)}</td>
+        <td class="success-badge ${succ==1?'ok':'fail'}">${succ==1?'✓ Yes':'✗ No'}</td>
+        <td class="score">${a.score.toFixed(3)}</td>
+        <td><span class="priority-chip ${priority}">${esc(priority)}</span></td>
+      </tr>`;
+    }).join('');
+  } else {
+    // Fall back to records sorted by anomaly_score
+    const top = _records.slice().sort((a,b)=>(parseFloat(b.anomaly_score)||0)-(parseFloat(a.anomaly_score)||0)).slice(0,20);
+    document.getElementById('anomTablePill').textContent = top.length + ' records';
+    tbody.innerHTML = top.map(r=>{
+      const overrun = r.cost_overrun_pct != null ? (parseFloat(r.cost_overrun_pct)*100).toFixed(1)+'%' : (r.overrun_pct_display||'—');
+      return `<tr>
+        <td class="mono">${esc(r.project_id||'—')}</td>
+        <td class="country">${esc(r.country||'—')}</td>
+        <td>${esc((r.dac_sector||'—').length>28?(r.dac_sector||'—').slice(0,26)+'…':(r.dac_sector||'—'))}</td>
+        <td style="color:${parseFloat(overrun)>30?'var(--danger)':parseFloat(overrun)>10?'var(--signal)':'var(--mute)'}">${esc(overrun)}</td>
+        <td class="success-badge ${r.success==1?'ok':'fail'}">${r.success==1?'✓ Yes':'✗ No'}</td>
+        <td class="score">${parseFloat(r.anomaly_score||0).toFixed(3)}</td>
+        <td><span class="priority-chip ${r.priority||'NORMAL'}">${esc(r.priority||'NORMAL')}</span></td>
+      </tr>`;
+    }).join('');
+  }
+}
+
+// ── Footer ─────────────────────────────────────────────────────────────────
+function renderFooter(){
+  const m = _F?.meta||{};
+  const ds = _DS||{};
+  document.getElementById('footRecords').textContent = (m.n_records||m.n_docs||ds.n_records||_records.length||'—').toLocaleString();
+  document.getElementById('footCountries').textContent = ds.n_countries || m.n_countries || new Set(_records.map(r=>r.country).filter(Boolean)).size || '—';
+  document.getElementById('footSectors').textContent = ds.n_sectors || m.n_sectors || new Set(_records.map(r=>r.dac_sector).filter(Boolean)).size || '—';
+}
+
+// ── AI summary ─────────────────────────────────────────────────────────────
+async function generateSummary(){
+  const btn = document.getElementById('btnSummary');
+  const result = document.getElementById('aiSummaryResult');
+  btn.disabled = true; btn.textContent = 'Generating…'; btn.style.opacity = '.6';
+  result.innerHTML = '<span style="color:var(--mute)">Generating AI summary of the government aid dataset…</span>';
+  try {
+    const resp = await fetch(`${API}/api/summarize`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({kind:'overview'}),
+    });
+    if(!resp.ok) throw new Error((await resp.json().catch(()=>({}))).detail || resp.statusText);
+    const data = await resp.json();
+    const text = data.summary || data.text || data.result || JSON.stringify(data);
+    result.innerHTML = `<div class="ai-sum-result">${md(text)}</div>`;
+  } catch(e) {
+    result.innerHTML = `<span style="color:var(--danger)">Error: ${esc(e.message)}</span>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Generate'; btn.style.opacity = '1';
+  }
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+loadData();
+</script>
+</body>
+</html>

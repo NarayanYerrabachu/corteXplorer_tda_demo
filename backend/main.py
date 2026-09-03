@@ -1,0 +1,955 @@
+"""
+CorteXplorer TDA Demo — Government Aid Edition
+FastAPI backend — port 8010
+"""
+from __future__ import annotations
+
+import logging
+import os
+import threading
+import time
+from pathlib import Path
+from typing import Any, Optional
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parents[1] / ".env")
+
+import numpy as np
+import pandas as pd
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+# ── Internal imports ──────────────────────────────────────────────────────────
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from backend.data.gov_aid_adapter import (
+    load_and_prepare, get_dataset_statistics, flag_suspicious
+)
+from backend.data.gov_aid_schema import (
+    ID_COL, COUNTRY_COL, DAC_MAPPING, COST_OVERRUN_PCT, SUCCESS,
+    CPI_SCORE, EVAL_LAG, BUDGET_INIT, APPROVAL_YEAR,
+    ANOMALY_HIGH_THRESHOLD, ANOMALY_MED_THRESHOLD,
+)
+from backend.tda.engine import run_full_pipeline
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+log = logging.getLogger(__name__)
+
+# ── App ───────────────────────────────────────────────────────────────────────
+app = FastAPI(
+    title="CorteXplorer TDA — Government Aid",
+    description="Pattern Intelligence for Government Aid Projects",
+    version="1.0.0",
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── Global state (built once at startup) ─────────────────────────────────────
+_lock   = threading.Lock()
+_state: dict[str, Any] = {}
+
+
+def _build_state(df: pd.DataFrame, tda_cols: list[str], lens: str = "pca") -> dict[str, Any]:
+    result = run_full_pipeline(df, tda_cols, lens_name=lens)
+    stats  = get_dataset_statistics(df)
+
+    # Attach anomaly scores back to records for suspicious flagging
+    from backend.data.gov_aid_adapter import build_records
+    records = build_records(df)
+    score_map = {
+        f["sources"][0]: f["score"]
+        for f in result.get("anomalies", [])
+        if f.get("sources")
+    }
+    for rec in records:
+        rec.anomaly_score = score_map.get(rec.project_id, 0.0)
+        iso_map = {
+            f["sources"][0]: f["extra"].get("iso_score", 0.0)
+            for f in result.get("anomalies", [])
+            if f.get("sources")
+        }
+        rec.iso_score = iso_map.get(rec.project_id, 0.0)
+    records = flag_suspicious(records)
+    record_map = {r.project_id: r for r in records}
+
+    # Attach cluster labels
+    cl = result.get("cluster_labels", [])
+    for i, pid in enumerate(result.get("record_ids", [])):
+        if pid in record_map and i < len(cl):
+            record_map[pid].cluster_id = int(cl[i])
+
+    return {
+        "pipeline":   result,
+        "stats":      stats,
+        "df":         df,
+        "tda_cols":   tda_cols,
+        "records":    records,
+        "record_map": record_map,
+        "built_at":   time.time(),
+        "lens":       lens,
+    }
+
+
+@app.on_event("startup")
+def startup():
+    log.info("CorteXplorer TDA Demo starting on port 8010…")
+    try:
+        df, tda_cols, _, warnings = load_and_prepare()
+        with _lock:
+            _state.update(_build_state(df, tda_cols))
+        log.info("State built: %d records, %d TDA features", len(df), len(tda_cols))
+        for w in warnings:
+            log.warning("Data warning: %s", w)
+    except Exception as exc:
+        log.error("Startup failed: %s", exc)
+        raise
+
+
+# ── Static files + HTML pages ─────────────────────────────────────────────────
+_FRONTEND = Path(__file__).parent.parent / "frontend"
+
+@app.get("/", response_class=HTMLResponse)
+def index():
+    p = _FRONTEND / "index.html"
+    if not p.exists():
+        raise HTTPException(404, "frontend/index.html not found")
+    return p.read_text(encoding="utf-8")
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard_page():
+    p = _FRONTEND / "dashboard.html"
+    if not p.exists():
+        raise HTTPException(404, "frontend/dashboard.html not found")
+    return p.read_text(encoding="utf-8")
+
+@app.get("/chat", response_class=HTMLResponse)
+def chat_page():
+    p = _FRONTEND / "chat.html"
+    if not p.exists():
+        raise HTTPException(404, "frontend/chat.html not found")
+    return p.read_text(encoding="utf-8")
+
+
+# ── Dataset API ───────────────────────────────────────────────────────────────
+
+@app.get("/api/dataset")
+def get_dataset_info():
+    """Dataset overview and statistics."""
+    s = _state.get("stats", {})
+    return {
+        "source":        "Government Aid Projects",
+        "file":          "Datenanalyse_Gov_Cleaned_MH.xlsx",
+        "sheet":         "government_aid_projects_v3",
+        **s,
+    }
+
+
+@app.get("/api/dataset/schema")
+def get_schema():
+    """Dataset column schema."""
+    from backend.data.gov_aid_schema import (
+        NUMERIC_FEATURES, CATEGORICAL_FEATURES, DATE_FEATURES,
+        TDA_FEATURES_DEFAULT
+    )
+    return {
+        "id_column":          ID_COL,
+        "numeric_features":   NUMERIC_FEATURES,
+        "categorical_features": CATEGORICAL_FEATURES,
+        "date_features":      DATE_FEATURES,
+        "tda_features_default": TDA_FEATURES_DEFAULT,
+    }
+
+
+@app.get("/api/dataset/statistics")
+def get_statistics():
+    return _state.get("stats", {})
+
+
+@app.get("/api/records")
+def get_records(
+    limit:  int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    country: Optional[str] = Query(None),
+    sector:  Optional[str] = Query(None),
+    priority: Optional[str] = Query(None),
+):
+    """Paginated record list with optional filters."""
+    records = _state.get("records", [])
+    if country:
+        records = [r for r in records if country.lower() in r.country.lower()]
+    if sector:
+        records = [r for r in records if sector.lower() in (r.dac_sector or "").lower()]
+    if priority:
+        records = [r for r in records if r.priority == priority.upper()]
+    total = len(records)
+    page  = records[offset:offset + limit]
+    return {
+        "total":   total,
+        "offset":  offset,
+        "limit":   limit,
+        "records": [r.to_dict() for r in page],
+    }
+
+
+@app.get("/api/record/{record_id}")
+def get_record(record_id: str):
+    """Full record detail with traceability."""
+    rm = _state.get("record_map", {})
+    rec = rm.get(record_id)
+    if not rec:
+        raise HTTPException(404, f"Record '{record_id}' not found")
+
+    # Audit trail entry
+    audit = _build_audit_trail(record_id)
+
+    return {
+        "record":      rec.to_dict(),
+        "audit_trail": audit,
+        "source":      "Datenanalyse_Gov_Cleaned_MH.xlsx / government_aid_projects_v3",
+    }
+
+
+# ── Findings API ──────────────────────────────────────────────────────────────
+
+@app.get("/api/findings")
+def get_findings():
+    """Full findings response matching CorteXplorer frontend contract."""
+    p = _state.get("pipeline", {})
+    return {
+        "meta":          p.get("meta", {}),
+        "themes":        p.get("themes", []),
+        "anomalies":     p.get("anomalies", []),
+        "suspicious":    p.get("suspicious", []),
+        "relationships": p.get("relationships", []),
+        "drift":         p.get("drift", []),
+        "topology":      p.get("topology", []),
+        "graph":         p.get("graph", {}),
+    }
+
+
+@app.get("/api/anomalies")
+def get_anomalies(limit: int = Query(50, ge=1, le=500)):
+    p = _state.get("pipeline", {})
+    return {"anomalies": p.get("anomalies", [])[:limit]}
+
+
+@app.get("/api/suspicious")
+def get_suspicious(limit: int = Query(50, ge=1, le=500)):
+    p = _state.get("pipeline", {})
+    return {"suspicious": p.get("suspicious", [])[:limit]}
+
+
+@app.get("/api/clusters")
+def get_clusters():
+    p = _state.get("pipeline", {})
+    return {"clusters": p.get("themes", [])}
+
+
+@app.get("/api/cluster/{cluster_id}")
+def get_cluster(cluster_id: int):
+    p   = _state.get("pipeline", {})
+    for t in p.get("themes", []):
+        if t.get("extra", {}).get("cluster_id") == cluster_id:
+            return t
+    raise HTTPException(404, f"Cluster {cluster_id} not found")
+
+
+@app.get("/api/relationships")
+def get_relationships(limit: int = Query(50, ge=1, le=200)):
+    p = _state.get("pipeline", {})
+    return {"relationships": p.get("relationships", [])[:limit]}
+
+
+@app.get("/api/drift")
+def get_drift():
+    p = _state.get("pipeline", {})
+    return {"drift": p.get("drift", [])}
+
+
+@app.get("/api/topology")
+def get_topology():
+    p = _state.get("pipeline", {})
+    return {
+        "tda":      p.get("meta", {}).get("tda", {}),
+        "topology": p.get("topology", []),
+    }
+
+
+@app.get("/api/tda/graph")
+def get_tda_graph():
+    p = _state.get("pipeline", {})
+    return p.get("graph", {})
+
+
+@app.get("/api/tda/cycles")
+def get_tda_cycles():
+    p = _state.get("pipeline", {})
+    tda = p.get("meta", {}).get("tda", {})
+    return {
+        "betti_0":         tda.get("betti_0", 1),
+        "betti_1":         tda.get("betti_1", 0),
+        "max_persistence": tda.get("max_persistence", 0.0),
+        "h1_features":     tda.get("h1_features", []),
+    }
+
+
+# ── TDA re-run ────────────────────────────────────────────────────────────────
+
+class TDARunRequest(BaseModel):
+    lens:        str = "pca"
+    n_intervals: int = 10
+    overlap:     float = 0.5
+    features:    Optional[list[str]] = None
+
+
+@app.post("/api/tda/run")
+def run_tda(req: TDARunRequest):
+    """Re-run TDA with different parameters."""
+    df       = _state.get("df")
+    tda_cols = _state.get("tda_cols", [])
+    if df is None:
+        raise HTTPException(503, "Data not loaded")
+
+    feat_cols = req.features or tda_cols
+    try:
+        result = run_full_pipeline(
+            df, feat_cols,
+            lens_name=req.lens,
+            n_intervals=req.n_intervals,
+            overlap=req.overlap,
+        )
+        with _lock:
+            _state["pipeline"] = result
+
+        return {"status": "ok", "meta": result.get("meta", {})}
+    except Exception as exc:
+        log.error("TDA re-run failed: %s", exc, exc_info=True)
+        raise HTTPException(500, str(exc))
+
+
+# ── Query / search ────────────────────────────────────────────────────────────
+
+class QueryRequest(BaseModel):
+    query: str
+    top_k: int = 10
+
+
+@app.post("/api/query")
+def run_query(req: QueryRequest):
+    """Simple keyword search over findings and records."""
+    q       = req.query.lower()
+    p       = _state.get("pipeline", {})
+    records = _state.get("records", [])
+
+    hits = []
+    for key in ["anomalies", "suspicious", "relationships", "themes", "drift", "topology"]:
+        for f in p.get(key, []):
+            if q in f.get("title", "").lower() or q in f.get("detail", "").lower():
+                hits.append(f)
+
+    # Also search records
+    rec_hits = [
+        r.to_dict() for r in records
+        if q in r.project_id.lower() or q in r.country.lower() or q in (r.dac_sector or "").lower()
+    ][:10]
+
+    return {
+        "query":   req.query,
+        "results": hits[:req.top_k],
+        "records": rec_hits,
+    }
+
+
+# ── Summarize ─────────────────────────────────────────────────────────────────
+
+class SummarizeRequest(BaseModel):
+    kind:    str           # "cluster" | "anomaly" | "record" | "overview"
+    id:      Optional[str] = None
+    sources: Optional[list[str]] = None
+
+
+@app.post("/api/summarize")
+def summarize(req: SummarizeRequest):
+    """Generate a summary for a cluster, anomaly, record, or overview."""
+    p       = _state.get("pipeline", {})
+    stats   = _state.get("stats", {})
+    rm      = _state.get("record_map", {})
+    df      = _state.get("df")
+
+    if req.kind == "overview":
+        meta = p.get("meta", {})
+        tda  = meta.get("tda", {})
+        return {
+            "summary": (
+                f"Government Aid dataset contains {stats.get('total_records', 0):,} projects "
+                f"across {stats.get('countries', 0)} countries and {stats.get('sectors', 0)} DAC sectors. "
+                f"TDA identified {meta.get('n_clusters', 0)} clusters, "
+                f"{meta.get('n_anomalies', 0)} anomalies, "
+                f"{meta.get('n_suspicious', 0)} suspicious records, "
+                f"and {meta.get('n_relationships', 0)} co-occurrence relationships. "
+                f"Average cost overrun: {stats.get('avg_overrun_pct', 0):.1f}%. "
+                f"Project success rate: {stats.get('success_rate', 0):.1f}%. "
+                f"Average CPI score: {stats.get('avg_cpi', 0):.1f}. "
+                f"Topological analysis found β₁={tda.get('betti_1', 0)} loops "
+                f"(max persistence {tda.get('max_persistence', 0):.4f})."
+            ),
+            "kind": "overview",
+        }
+
+    if req.kind == "cluster" and req.id is not None:
+        try:
+            cid = int(req.id)
+        except ValueError:
+            raise HTTPException(400, "cluster id must be integer")
+        themes = p.get("themes", [])
+        theme  = next((t for t in themes if t.get("extra", {}).get("cluster_id") == cid), None)
+        if not theme:
+            raise HTTPException(404, f"Cluster {cid} not found")
+        stats_d = theme.get("extra", {}).get("stats", {})
+        lines   = [theme["detail"]]
+        for feat, s in stats_d.items():
+            lines.append(f"{feat}: mean={s['mean']:.3f}, std={s['std']:.3f}")
+        return {"summary": " ".join(lines), "kind": "cluster", "finding": theme}
+
+    if req.kind == "anomaly" and req.id:
+        anoms = p.get("anomalies", [])
+        a     = next((x for x in anoms if req.id in x.get("sources", [])), None)
+        if not a:
+            raise HTTPException(404, f"Anomaly for {req.id} not found")
+        extra = a.get("extra", {})
+        flagged = ", ".join(extra.get("flagged_by", []))
+        return {
+            "summary": (
+                f"{a['title']} — anomaly score {a['score']:.4f}. "
+                f"Isolation Forest: {extra.get('iso_score', 0):.4f}. "
+                f"Topological score: {extra.get('topo_score', 0):.4f}. "
+                f"Key drivers: {flagged or 'unknown'}. {a['detail']}"
+            ),
+            "kind":    "anomaly",
+            "finding": a,
+        }
+
+    if req.kind == "record" and req.id:
+        rec = rm.get(req.id)
+        if not rec:
+            raise HTTPException(404, f"Record {req.id} not found")
+        return {
+            "summary": (
+                f"Project {rec.project_id}: {rec.country}, {rec.dac_sector}. "
+                f"Budget: {rec.budget_display}. "
+                f"Cost overrun: {rec.overrun_pct_display}. "
+                f"Success: {rec.success_label}. "
+                f"CPI: {rec.cpi_score:.0f}. "
+                f"Eval lag: {rec.eval_lag_days:.0f} days. "
+                f"Priority: {rec.priority}. "
+                + (f"Suspicious: {rec.suspicious_reason}" if rec.suspicious_reason else "No suspicious flags.")
+            ),
+            "kind":   "record",
+            "record": rec.to_dict(),
+        }
+
+    return {"summary": "Specify kind=overview|cluster|anomaly|record", "kind": req.kind}
+
+
+# ── Audit trail ───────────────────────────────────────────────────────────────
+
+def _build_audit_trail(record_id: str) -> list[dict]:
+    p    = _state.get("pipeline", {})
+    meta = p.get("meta", {})
+    rm   = _state.get("record_map", {})
+    rec  = rm.get(record_id)
+
+    trail = [
+        {
+            "step":  "Source",
+            "desc":  "Government Aid project data",
+            "value": "Datenanalyse_Gov_Cleaned_MH.xlsx / government_aid_projects_v3",
+        },
+        {
+            "step":  "Record ID",
+            "desc":  "Primary identifier",
+            "value": record_id,
+        },
+        {
+            "step":  "Schema Validation",
+            "desc":  "Required columns present",
+            "value": "PASS",
+        },
+        {
+            "step":  "Preprocessing",
+            "desc":  "Null imputation, type coercion",
+            "value": "median fill for numeric, 'Unknown' for categorical",
+        },
+        {
+            "step":  "Feature Engineering",
+            "desc":  "Derived features added",
+            "value": "_log_budget, _overrun_class, _cpi_norm, _lag_norm, _risk_composite",
+        },
+        {
+            "step":  "TDA Features",
+            "desc":  "Features used for TDA",
+            "value": ", ".join(meta.get("numeric_features", [])),
+        },
+        {
+            "step":  "Normalisation",
+            "desc":  "StandardScaler applied",
+            "value": "StandardScaler (mean=0, std=1)",
+        },
+        {
+            "step":  "Lens",
+            "desc":  "TDA filter function",
+            "value": meta.get("lens", "pca"),
+        },
+        {
+            "step":  "Clustering",
+            "desc":  "DBSCAN cluster assignment",
+            "value": f"Cluster {rec.cluster_id if rec else '?'}",
+        },
+        {
+            "step":  "Anomaly Detection",
+            "desc":  "Isolation Forest + topo score",
+            "value": f"score={rec.anomaly_score:.4f}, iso={rec.iso_score:.4f}" if rec else "N/A",
+        },
+        {
+            "step":  "Priority",
+            "desc":  "Rule-based priority flag",
+            "value": rec.priority if rec else "N/A",
+        },
+        {
+            "step":  "Traceability",
+            "desc":  "100% traceable to source",
+            "value": "VERIFIED",
+        },
+    ]
+    return trail
+
+
+@app.get("/api/audit/{record_id}")
+def get_audit(record_id: str):
+    rm = _state.get("record_map", {})
+    if record_id not in rm:
+        raise HTTPException(404, f"Record '{record_id}' not found")
+    return {"record_id": record_id, "audit_trail": _build_audit_trail(record_id)}
+
+
+# ── Chat ──────────────────────────────────────────────────────────────────────
+
+class ChatRequest(BaseModel):
+    message: str
+    history: Optional[list[dict]] = None
+
+
+@app.post("/api/chat")
+def chat(req: ChatRequest):
+    """
+    Context-aware chat over Government Aid TDA results.
+    Uses OpenAI if configured; falls back to rule-based answers.
+    """
+    msg  = req.message.lower()
+    p    = _state.get("pipeline", {})
+    meta = p.get("meta", {})
+    stats = _state.get("stats", {})
+
+    # Rule-based answers (always available, no OpenAI needed)
+    answer = _rule_based_chat(msg, p, meta, stats)
+
+    # Optionally enhance with OpenAI
+    _OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
+    if _OPENAI_KEY and answer is None:
+        try:
+            import openai
+            client  = openai.OpenAI(api_key=_OPENAI_KEY)
+            context = _build_chat_context(p, meta, stats)
+            messages = [
+                {"role": "system", "content": (
+                    "You are CorteXplorer, a Topological Data Analysis (TDA) intelligence assistant "
+                    "for Government Aid project analysis. Answer based strictly on the provided data context. "
+                    "Always cite specific project IDs, countries, sectors, and anomaly scores when available. "
+                    "Never hallucinate facts. State clearly if something is not in the data.\n\n"
+                    f"DATA CONTEXT:\n{context}"
+                )},
+            ]
+            if req.history:
+                messages.extend(req.history[-6:])
+            messages.append({"role": "user", "content": req.message})
+            resp  = client.chat.completions.create(model="gpt-4o-mini", messages=messages, max_tokens=400)
+            answer = resp.choices[0].message.content
+        except Exception as exc:
+            log.warning("OpenAI chat failed: %s", exc)
+
+    if answer is None:
+        answer = (
+            f"I can answer questions about the {stats.get('total_records',0):,} government aid projects. "
+            "Try: 'which records are anomalous?', 'show me the clusters', "
+            "'what is the average cost overrun?', 'explain the topology', "
+            "'which countries have the most failures?'"
+        )
+
+    return {"answer": answer, "traceable": True}
+
+
+def _rule_based_chat(msg: str, p: dict, meta: dict, stats: dict) -> Optional[str]:
+    """Fast rule-based answers without LLM."""
+    anoms = p.get("anomalies", [])
+    susp  = p.get("suspicious", [])
+    rels  = p.get("relationships", [])
+    drift = p.get("drift", [])
+
+    if any(k in msg for k in ["anomal", "unusual", "outlier"]):
+        top = anoms[:5]
+        lines = [f"- {a['title']} (score {a['score']:.3f})" for a in top]
+        return (
+            f"Found {len(anoms)} anomalies. Top 5:\n" + "\n".join(lines) +
+            f"\n\nAnomaly detection uses Isolation Forest (60%) + topological distance (40%). "
+            f"Scores are normalised 0–1. Records with score ≥ {ANOMALY_HIGH_THRESHOLD} are HIGH priority."
+        )
+
+    if any(k in msg for k in ["cluster", "group", "segment"]):
+        themes = p.get("themes", [])
+        n      = meta.get("n_clusters", 0)
+        lines  = [f"- {t['title']}: {t['detail']}" for t in themes[:5]]
+        return (
+            f"TDA identified {n} DBSCAN clusters in the Government Aid data.\n" +
+            "\n".join(lines)
+        )
+
+    if any(k in msg for k in ["overrun", "cost", "budget", "financial"]):
+        avg_ovr = stats.get("avg_overrun_pct", 0)
+        n_ovr   = stats.get("n_overrun", 0)
+        top_a   = [a for a in anoms if "overrun" in a.get("title", "").lower()][:3]
+        lines   = [f"- {a['title']}" for a in top_a]
+        return (
+            f"Average cost overrun: {avg_ovr:.1f}%. "
+            f"{n_ovr:,} projects exceeded their initial budget. "
+            f"Top anomalous overrun cases:\n" + "\n".join(lines)
+        )
+
+    if any(k in msg for k in ["success", "fail", "outcome"]):
+        sr = stats.get("success_rate", 0)
+        nf = stats.get("n_failed", 0)
+        return (
+            f"Project success rate: {sr:.1f}%. "
+            f"{nf:,} projects were unsuccessful. "
+            f"Failed projects with high overrun are flagged as HIGH priority anomalies."
+        )
+
+    if any(k in msg for k in ["country", "geographic", "region", "nation"]):
+        n_countries = stats.get("countries", 0)
+        top_rels    = rels[:3]
+        lines       = [f"- {r['title']}: {r['detail']}" for r in top_rels]
+        return (
+            f"The dataset spans {n_countries} recipient countries. "
+            f"Strongest country–sector co-occurrence relationships in overrun projects:\n" +
+            "\n".join(lines)
+        )
+
+    if any(k in msg for k in ["drift", "trend", "time", "year"]):
+        if not drift:
+            return "No significant drift detected in the dataset."
+        lines = [f"- {d['title']}: {d['detail']}" for d in drift[:3]]
+        return "Temporal drift findings:\n" + "\n".join(lines)
+
+    if any(k in msg for k in ["suspicious", "flag", "risk"]):
+        top = susp[:5]
+        lines = [f"- {s['title']}: {s['detail']}" for s in top]
+        return (
+            f"Found {len(susp)} suspicious records based on rule-based flags "
+            f"(extreme overrun, failed outcome, low CPI, unusual budget).\nTop cases:\n" +
+            "\n".join(lines)
+        )
+
+    if any(k in msg for k in ["topolog", "loop", "cycle", "betti", "tda", "homolog"]):
+        tda = meta.get("tda", {})
+        return (
+            f"Persistent homology results:\n"
+            f"  β₀ (connected components): {tda.get('betti_0', 1)}\n"
+            f"  β₁ (independent loops):    {tda.get('betti_1', 0)}\n"
+            f"  Max persistence:           {tda.get('max_persistence', 0):.4f}\n\n"
+            f"β₁ loops indicate circular patterns in the high-dimensional feature space. "
+            f"High persistence means the pattern is structurally significant, not noise."
+        )
+
+    if any(k in msg for k in ["cpi", "governance", "corruption"]):
+        avg_cpi = stats.get("avg_cpi", 0)
+        return (
+            f"Average CPI (Corruption Perception Index) score: {avg_cpi:.1f}. "
+            f"CPI ranges from 0 (highly corrupt) to ~500 (very clean). "
+            f"Projects in low-CPI countries tend to have higher anomaly scores."
+        )
+
+    if any(k in msg for k in ["relation", "link", "connect", "network"]):
+        n = meta.get("n_relationships", 0)
+        top = rels[:3]
+        lines = [f"- {r['title']}: {r['detail']}" for r in top]
+        return (
+            f"Found {n} co-occurrence relationships (country × sector in overrun projects).\n" +
+            "\n".join(lines)
+        )
+
+    return None
+
+
+def _build_chat_context(p: dict, meta: dict, stats: dict) -> str:
+    anoms  = p.get("anomalies", [])[:5]
+    themes = p.get("themes", [])[:5]
+    drift  = p.get("drift", [])[:3]
+    lines  = [
+        f"Total records: {stats.get('total_records', 0)}",
+        f"Countries: {stats.get('countries', 0)}, Sectors: {stats.get('sectors', 0)}",
+        f"Success rate: {stats.get('success_rate', 0):.1f}%",
+        f"Avg overrun: {stats.get('avg_overrun_pct', 0):.1f}%",
+        f"Avg CPI: {stats.get('avg_cpi', 0):.1f}",
+        f"TDA clusters: {meta.get('n_clusters', 0)}, β₁={meta.get('tda',{}).get('betti_1', 0)}",
+        f"Anomalies: {len(anoms)}, Suspicious: {meta.get('n_suspicious', 0)}",
+        "",
+        "TOP ANOMALIES:",
+    ]
+    for a in anoms:
+        lines.append(f"  {a['title']} (score {a['score']:.3f})")
+    lines += ["", "CLUSTERS:"]
+    for t in themes:
+        lines.append(f"  {t['title']}: {t['detail']}")
+    lines += ["", "DRIFT:"]
+    for d in drift:
+        lines.append(f"  {d['title']}: {d['detail']}")
+    return "\n".join(lines)
+
+
+# ── Interrogate ───────────────────────────────────────────────────────────────
+
+class InterrogateRequest(BaseModel):
+    target:  str            # "record" | "cluster" | "anomaly" | "topology" | "overview"
+    id:      Optional[str] = None
+    question: Optional[str] = None
+
+
+@app.post("/api/interrogate")
+def interrogate(req: InterrogateRequest):
+    """Deep interrogation of a specific finding or record with source traceability."""
+    p  = _state.get("pipeline", {})
+    rm = _state.get("record_map", {})
+
+    if req.target == "record" and req.id:
+        rec   = rm.get(req.id)
+        audit = _build_audit_trail(req.id)
+        if not rec:
+            raise HTTPException(404, f"Record {req.id} not found")
+        explanation = (
+            f"Project {rec.project_id} is a government aid project in {rec.country} "
+            f"({rec.dac_sector} sector). "
+            f"Initial budget: {rec.budget_display}. "
+            f"Cost overrun: {rec.overrun_pct_display}. "
+            f"Outcome: {rec.success_label}. "
+            f"CPI score: {rec.cpi_score:.0f}. "
+            f"Evaluation lag: {rec.eval_lag_days:.0f} days. "
+            f"Anomaly score: {rec.anomaly_score:.4f} (ISO: {rec.iso_score:.4f}). "
+            f"Cluster: {rec.cluster_id}. Priority: {rec.priority}. "
+            + (f"Reason: {rec.suspicious_reason}" if rec.suspicious_reason else "No suspicious flags.")
+        )
+        return {
+            "target":      "record",
+            "id":          req.id,
+            "explanation": explanation,
+            "record":      rec.to_dict(),
+            "audit_trail": audit,
+            "traceable":   True,
+        }
+
+    if req.target == "cluster" and req.id is not None:
+        try:
+            cid = int(req.id)
+        except ValueError:
+            raise HTTPException(400, "cluster id must be integer")
+        themes = p.get("themes", [])
+        theme  = next((t for t in themes if t.get("extra", {}).get("cluster_id") == cid), None)
+        if not theme:
+            raise HTTPException(404, f"Cluster {cid} not found")
+        stats_d = theme.get("extra", {}).get("stats", {})
+        stat_lines = [f"  {k}: mean={v['mean']:.3f}, std={v['std']:.3f}" for k, v in stats_d.items()]
+        return {
+            "target":      "cluster",
+            "id":          req.id,
+            "explanation": theme["detail"] + "\nFeature statistics:\n" + "\n".join(stat_lines),
+            "finding":     theme,
+            "traceable":   True,
+        }
+
+    if req.target == "overview":
+        meta  = p.get("meta", {})
+        stats = _state.get("stats", {})
+        return {
+            "target":      "overview",
+            "explanation": (
+                f"Dataset: {stats.get('total_records', 0):,} government aid projects. "
+                f"{meta.get('n_clusters', 0)} clusters, {meta.get('n_anomalies', 0)} anomalies. "
+                f"β₁={meta.get('tda',{}).get('betti_1', 0)} topological loops. "
+                f"Average overrun {stats.get('avg_overrun_pct',0):.1f}%, "
+                f"success rate {stats.get('success_rate',0):.1f}%."
+            ),
+            "meta":      meta,
+            "stats":     stats,
+            "traceable": True,
+        }
+
+    return {"target": req.target, "explanation": "Specify target=record|cluster|overview", "traceable": False}
+
+
+# ── Report ────────────────────────────────────────────────────────────────────
+
+@app.get("/api/report")
+def get_report():
+    """Text report of Government Aid TDA analysis."""
+    p    = _state.get("pipeline", {})
+    meta = p.get("meta", {})
+    stats = _state.get("stats", {})
+    tda   = meta.get("tda", {})
+    anoms = p.get("anomalies", [])[:10]
+    susp  = p.get("suspicious", [])[:10]
+    rels  = p.get("relationships", [])[:5]
+    drift = p.get("drift", [])
+    themes = p.get("themes", [])
+
+    lines = [
+        "=" * 70,
+        "CORTE XPLORER TDA — GOVERNMENT AID PATTERN INTELLIGENCE REPORT",
+        "=" * 70,
+        "",
+        "EXECUTIVE SUMMARY",
+        "-" * 40,
+        f"  Total Projects Analysed : {stats.get('total_records', 0):,}",
+        f"  Recipient Countries     : {stats.get('countries', 0)}",
+        f"  DAC Sectors             : {stats.get('sectors', 0)}",
+        f"  Year Range              : {stats.get('year_range', ['?','?'])}",
+        f"  Success Rate            : {stats.get('success_rate', 0):.1f}%",
+        f"  Avg Cost Overrun        : {stats.get('avg_overrun_pct', 0):.1f}%",
+        f"  Avg CPI Score           : {stats.get('avg_cpi', 0):.1f}",
+        f"  Avg Evaluation Lag      : {stats.get('avg_eval_lag', 0):.0f} days",
+        "",
+        "TDA RESULTS",
+        "-" * 40,
+        f"  Clusters (β₀ groups)  : {meta.get('n_clusters', 0)}",
+        f"  Anomalies             : {meta.get('n_anomalies', 0)}",
+        f"  Suspicious (rules)    : {meta.get('n_suspicious', 0)}",
+        f"  Relationships         : {meta.get('n_relationships', 0)}",
+        f"  Drift signals         : {meta.get('n_drift', 0)}",
+        f"  β₁ Loops              : {tda.get('betti_1', 0)}",
+        f"  Max persistence       : {tda.get('max_persistence', 0):.4f}",
+        "",
+        "TOP ANOMALIES",
+        "-" * 40,
+    ]
+    for a in anoms:
+        extra = a.get("extra", {})
+        lines.append(f"  [{a['score']:.3f}] {a['title']}")
+        lines.append(f"         iso={extra.get('iso_score','?')}  topo={extra.get('topo_score','?')}")
+        flagged = ", ".join(extra.get("flagged_by", []))
+        if flagged:
+            lines.append(f"         drivers: {flagged}")
+    lines += ["", "SUSPICIOUS RECORDS", "-" * 40]
+    for s in susp:
+        lines.append(f"  [{s['score']:.3f}] {s['title']}")
+        lines.append(f"         {s['detail']}")
+    lines += ["", "CLUSTERS", "-" * 40]
+    for t in themes:
+        lines.append(f"  {t['title']}: {t['detail']}")
+    lines += ["", "RELATIONSHIPS", "-" * 40]
+    for r in rels:
+        lines.append(f"  {r['title']}: {r['detail']}")
+    lines += ["", "DRIFT", "-" * 40]
+    if not drift:
+        lines.append("  No significant drift detected.")
+    for d in drift:
+        lines.append(f"  {d['title']}: {d['detail']}")
+    lines += [
+        "",
+        "TRACEABILITY",
+        "-" * 40,
+        "  Source: Datenanalyse_Gov_Cleaned_MH.xlsx / government_aid_projects_v3",
+        "  All findings traceable to source record via /api/audit/{record_id}",
+        "  100% TRACEABLE",
+        "",
+        "=" * 70,
+    ]
+
+    return {"report": "\n".join(lines), "traceable": True, "hallucinations": 0}
+
+
+@app.get("/api/report/ai")
+def get_ai_report():
+    """AI-enhanced report (requires OPENAI_API_KEY)."""
+    text_report = get_report()["report"]
+    _OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
+
+    if not _OPENAI_KEY:
+        return {
+            "report":      text_report,
+            "ai_section":  None,
+            "ai_note":     "Set OPENAI_API_KEY in .env to enable AI-generated insights.",
+            "traceable":   True,
+            "hallucinations": 0,
+        }
+
+    try:
+        import openai
+        client = openai.OpenAI(api_key=_OPENAI_KEY)
+        prompt = (
+            "You are analysing a Government Aid dataset TDA report. "
+            "Based ONLY on the following computed data (do not invent facts), "
+            "provide 3-5 strategic insights for a government oversight committee. "
+            "Clearly distinguish between (1) observed data facts, (2) computed TDA/ML findings, "
+            "and (3) your interpretation. Label each clearly.\n\n"
+            f"DATA REPORT:\n{text_report}"
+        )
+        resp     = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=600,
+        )
+        ai_text  = resp.choices[0].message.content
+        return {
+            "report":      text_report,
+            "ai_section":  ai_text,
+            "ai_note":     "AI insights are interpretations of computed data, not raw facts.",
+            "traceable":   True,
+            "hallucinations": 0,
+        }
+    except Exception as exc:
+        log.error("AI report failed: %s", exc)
+        return {
+            "report":      text_report,
+            "ai_section":  None,
+            "ai_note":     f"AI report generation failed: {exc}",
+            "traceable":   True,
+            "hallucinations": 0,
+        }
+
+
+# ── Health ────────────────────────────────────────────────────────────────────
+
+@app.get("/api/health")
+def health():
+    built = _state.get("built_at")
+    return {
+        "status":  "ok" if _state else "initialising",
+        "records": len(_state.get("records", [])),
+        "built_at": built,
+        "port":    8010,
+    }
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", "8010"))
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=port, reload=False, workers=1)

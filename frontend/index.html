@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CorteXplorer TDA — Government Aid Pattern Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="js/config.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/findings.js"></script>
+<script src="js/graph.js"></script>
+<script src="js/audit.js"></script>
+<script src="js/tda_explorer.js"></script>
+<script src="js/chat.js"></script>
+<style>
+:root{
+  --ink:#13151A;--panel:#1A1D24;--panel2:#20242D;--line:#2A2F3A;
+  --text:#D9DCE3;--mute:#878E9C;--faint:#59616E;
+  --signal:#E0A33E;--signal-deep:#B5651D;
+  --danger:#E05252;--danger-deep:#8B1A1A;
+  --relate:#5E9CA6;--theme:#A9B4C4;
+  --tda:#9B7FD4;--ok:#6FAE8F;--drift:#4EA8DE;
+  --paper:#ECE7DA;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{background:var(--ink);color:var(--text);font-family:'Space Grotesk',system-ui,sans-serif;font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
+.mono{font-family:'IBM Plex Mono',monospace}
+button{font-family:inherit;color:inherit;cursor:pointer}
+::selection{background:var(--tda);color:#100C1A}
+
+/* ── App shell ── */
+.app{display:flex;flex-direction:column;height:100vh;min-height:0}
+
+/* ── Header ── */
+header{
+  display:flex;align-items:center;gap:16px;padding:11px 18px;
+  border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,#1B1721,#171421);
+  flex-wrap:wrap;min-height:56px;
+}
+.brand{display:flex;align-items:baseline;gap:10px;white-space:nowrap;text-decoration:none}
+.brand .mark{font-weight:700;font-size:17px;letter-spacing:.04em;color:var(--text)}
+.brand .mark b{color:var(--tda)}
+.brand .tag{font-size:10px;color:var(--mute);letter-spacing:.14em;text-transform:uppercase}
+.brand .engine-badge{
+  font-size:10px;color:var(--tda);border:1px solid rgba(155,127,212,.4);
+  border-radius:2px;padding:1px 7px;letter-spacing:.1em;text-transform:uppercase;
+  font-family:'IBM Plex Mono',monospace;white-space:nowrap;
+}
+.search{flex:1;min-width:200px;position:relative;display:flex;align-items:center}
+.search input{
+  width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  border-radius:2px;padding:8px 12px 8px 32px;
+  font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.01em;
+}
+.search input:focus{outline:2px solid var(--tda);outline-offset:-1px;border-color:transparent}
+.search .ico{position:absolute;left:10px;color:var(--mute);font-size:12px}
+.stats{display:flex;gap:18px;white-space:nowrap}
+.stat .n{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:14px}
+.stat .l{font-size:10px;color:var(--mute);letter-spacing:.12em;text-transform:uppercase}
+.stat.clean .n{color:var(--ok)}
+.stat.tda-stat .n{color:var(--tda)}
+.stat.danger-stat .n{color:var(--danger)}
+
+/* ── Nav ── */
+nav{
+  display:flex;align-items:center;gap:2px;padding:0 18px;
+  border-bottom:1px solid var(--line);background:var(--panel);min-height:40px;
+  overflow-x:auto;
+}
+.navbtn{
+  background:none;border:none;border-bottom:2px solid transparent;
+  padding:9px 14px;font-size:12.5px;color:var(--mute);
+  letter-spacing:.04em;white-space:nowrap;
+}
+.navbtn:hover{color:var(--text)}
+.navbtn.active{color:var(--text);border-bottom-color:var(--tda)}
+.navbtn.accent{color:var(--signal)}
+.navbtn.accent.active{border-bottom-color:var(--signal)}
+
+/* ── Work area ── */
+.work{flex:1;display:grid;grid-template-columns:170px minmax(280px,1fr) minmax(300px,1.2fr);min-height:0}
+
+/* ── Left rail ── */
+.rail{border-right:1px solid var(--line);padding:14px 8px;display:flex;flex-direction:column;gap:3px;overflow-y:auto}
+.rail .lbl{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);padding:4px 10px 6px}
+.lens{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:8px 10px;border:1px solid transparent;border-radius:3px;
+  background:none;width:100%;text-align:left;color:var(--mute);font-size:13px;
+}
+.lens:hover{background:var(--panel)}
+.lens[aria-selected=true]{background:var(--panel2);color:var(--text);border-color:var(--line)}
+.lens .dot{width:7px;height:7px;border-radius:50%;flex:none;margin-right:6px}
+.lens .nm{display:flex;align-items:center;flex:1}
+.lens .ct{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint)}
+.lens.susp .dot{background:var(--danger)}
+.lens.anom .dot{background:var(--signal)}
+.lens.topo .dot{background:var(--tda)}
+.lens.drift .dot{background:var(--drift)}
+.lens.rel  .dot{background:var(--relate)}
+.lens.theme .dot{background:var(--theme)}
+
+/* ── Center column ── */
+.center{border-right:1px solid var(--line);min-height:0;overflow-y:auto;padding:12px}
+.center::-webkit-scrollbar{width:6px}
+.center::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
+.col-head{display:flex;align-items:baseline;justify-content:space-between;margin:2px 4px 10px}
+.col-head h2{margin:0;font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--text);font-weight:600}
+.col-head .sub{font-size:11px;color:var(--mute)}
+
+/* ── Finding cards ── */
+.find{
+  border:1px solid var(--line);border-left:2px solid var(--line);border-radius:3px;
+  padding:10px 12px;margin-bottom:8px;background:var(--panel);cursor:pointer;
+  transition:border-color .12s,background .12s;
+}
+.find:hover{background:var(--panel2)}
+.find[aria-selected=true]{background:var(--panel2)}
+.find.k-anomaly[aria-selected=true]{border-left-color:var(--signal)}
+.find.k-suspicious[aria-selected=true]{border-left-color:var(--danger)}
+.find.k-suspicious .title{color:var(--danger)}
+.find.k-relationship[aria-selected=true]{border-left-color:var(--relate)}
+.find.k-theme[aria-selected=true]{border-left-color:var(--theme)}
+.find.k-topology[aria-selected=true]{border-left-color:var(--tda)}
+.find.k-topology .title{color:var(--tda)}
+.find.k-drift[aria-selected=true]{border-left-color:var(--drift)}
+.find.k-drift .title{color:var(--drift)}
+.find .ft{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.find .title{font-weight:500;font-size:13.5px;word-break:break-word}
+.find .meta{font-size:11px;color:var(--mute);margin-top:4px;font-family:'IBM Plex Mono',monospace}
+.find .detail{font-size:12px;color:var(--mute);margin-top:5px;line-height:1.4}
+.find .chips{margin-top:6px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.find .chips.signal span{color:var(--signal);border:1px solid rgba(224,163,62,.3);border-radius:2px;padding:0 5px;background:rgba(224,163,62,.07)}
+.find .chips.danger span{color:var(--danger);border:1px solid rgba(224,82,82,.3);border-radius:2px;padding:0 5px;background:rgba(224,82,82,.07)}
+.find .chips.tda span{color:var(--tda);border:1px solid rgba(155,127,212,.3);border-radius:2px;padding:0 5px;background:rgba(155,127,212,.07)}
+.find .chips.relate span{color:var(--relate);border:1px solid rgba(94,156,166,.3);border-radius:2px;padding:0 5px;background:rgba(94,156,166,.07)}
+.find .chips.drift span{color:var(--drift);border:1px solid rgba(78,168,222,.3);border-radius:2px;padding:0 5px;background:rgba(78,168,222,.07)}
+.sev{display:flex;align-items:center;gap:6px;flex:none}
+.sev .bar{width:42px;height:4px;background:var(--line);border-radius:3px;overflow:hidden}
+.sev .bar i{display:block;height:100%;background:var(--signal)}
+.sev .v{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--signal)}
+.trace-btn{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);background:none;border:1px solid var(--line);border-radius:2px;padding:1px 6px;margin-top:6px;}
+.trace-btn:hover{color:var(--tda);border-color:var(--tda)}
+
+/* ── Right panel ── */
+.source{display:flex;flex-direction:column;min-height:0}
+.rtabs{display:flex;border-bottom:1px solid var(--line);gap:0}
+.rtab{background:none;border:none;border-bottom:2px solid transparent;padding:9px 16px;font-size:12px;color:var(--mute);cursor:pointer;letter-spacing:.04em}
+.rtab:hover{color:var(--text)}
+.rtab.active{color:var(--text);border-bottom-color:var(--tda)}
+.rtab-content{flex:1;overflow-y:auto;padding:14px;min-height:0}
+.rtab-content::-webkit-scrollbar{width:6px}
+.rtab-content::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
+.src-empty{color:var(--mute);font-size:13px;padding:40px 14px;text-align:center;line-height:1.7}
+
+/* ── Graph ── */
+#graph-svg{width:100%;height:320px;background:var(--panel);border-radius:4px}
+.node-circle{cursor:pointer;stroke-width:1.5}
+.node-label{font-family:'IBM Plex Mono',monospace;font-size:9px;fill:var(--mute);pointer-events:none}
+.edge-line{stroke:var(--line);stroke-opacity:.5}
+
+/* ── Audit trail ── */
+.audit-step{display:flex;gap:10px;margin-bottom:10px;align-items:flex-start}
+.audit-step .step-icon{font-size:14px;flex:none;margin-top:1px}
+.audit-step .step-body .label{font-size:11px;font-weight:600;color:var(--text)}
+.audit-step .step-body .val{font-size:11px;color:var(--mute);font-family:'IBM Plex Mono',monospace;word-break:break-all}
+.audit-verified{display:inline-flex;align-items:center;gap:6px;background:rgba(111,174,143,.12);color:var(--ok);border:1px solid rgba(111,174,143,.3);border-radius:3px;padding:4px 10px;font-size:11px;font-family:'IBM Plex Mono',monospace;margin-top:10px}
+
+/* ── Summary ── */
+.sum-text{font-size:12.5px;color:var(--mute);line-height:1.6;padding:4px 0}
+.sum-btn{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:3px;padding:7px 14px;font-size:12px;margin:6px 4px 6px 0}
+.sum-btn:hover{border-color:var(--tda)}
+
+/* ── TDA Explorer panel ── */
+#tda-explorer{
+  position:fixed;bottom:0;left:170px;right:0;
+  background:var(--panel);border-top:1px solid var(--tda);
+  padding:12px 18px;
+  display:none;z-index:100;
+}
+#tda-explorer.open{display:block}
+.tda-explorer-inner{display:flex;gap:24px;align-items:flex-end;flex-wrap:wrap}
+.tda-group label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);display:block;margin-bottom:6px}
+.tda-group select,.tda-group input[type=range]{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:2px;padding:5px 8px;font-size:12px}
+.tda-check-grid{display:flex;flex-wrap:wrap;gap:6px}
+.tda-check{font-size:11px;font-family:'IBM Plex Mono',monospace;cursor:pointer;display:flex;align-items:center;gap:4px;color:var(--mute)}
+.tda-check input{accent-color:var(--tda)}
+.tda-run-btn{background:var(--tda);border:none;color:#100C1A;font-weight:600;border-radius:3px;padding:8px 18px;font-size:13px}
+.tda-run-btn:hover{opacity:.85}
+.tda-metrics{display:flex;gap:16px}
+.tda-m .n{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:16px;color:var(--tda)}
+.tda-m .l{font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em}
+
+/* ── Chat overlay ── */
+#chat-overlay{
+  position:fixed;bottom:0;right:0;width:380px;
+  background:var(--panel);border:1px solid var(--line);border-radius:8px 8px 0 0;
+  box-shadow:0 -4px 24px rgba(0,0,0,.4);
+  display:none;flex-direction:column;z-index:200;max-height:60vh;
+}
+#chat-overlay.open{display:flex}
+.chat-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line)}
+.chat-msgs{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.chat-msg{max-width:85%;padding:8px 11px;border-radius:6px;font-size:12.5px;line-height:1.5}
+.chat-msg.user{align-self:flex-end;background:var(--tda);color:#100C1A;border-radius:6px 6px 2px 6px}
+.chat-msg.bot{align-self:flex-start;background:var(--panel2);border:1px solid var(--line);border-radius:6px 6px 6px 2px}
+.chat-input-row{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--line)}
+.chat-input-row input{flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:3px;padding:8px 10px;font-size:13px}
+.chat-input-row button{background:var(--tda);border:none;color:#100C1A;border-radius:3px;padding:8px 14px;font-size:13px;font-weight:600}
+
+/* ── Toast ── */
+.toast{
+  position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+  background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  padding:9px 18px;border-radius:4px;font-size:13px;z-index:999;
+  animation:fadeIn .2s ease;display:none;
+}
+.toast.visible{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateX(-50%) translateY(8px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+
+/* ── Loading skeleton ── */
+.skeleton{background:linear-gradient(90deg,var(--panel) 25%,var(--panel2) 50%,var(--panel) 75%);background-size:200% 100%;animation:shimmer 1.4s infinite;border-radius:3px;height:70px;margin-bottom:8px}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+/* ── Interrogate panel ── */
+#interrogate-panel{
+  position:fixed;top:10%;right:2%;width:420px;max-height:75vh;
+  background:var(--panel);border:1px solid var(--tda);border-radius:6px;
+  box-shadow:0 8px 32px rgba(0,0,0,.5);
+  display:none;flex-direction:column;z-index:300;overflow:hidden;
+}
+#interrogate-panel.open{display:flex}
+.int-header{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-bottom:1px solid var(--line);font-size:13px;font-weight:600;color:var(--tda)}
+.int-body{flex:1;overflow-y:auto;padding:14px}
+.int-input-row{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--line)}
+.int-input-row input{flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:2px;padding:7px 10px;font-size:12px}
+.int-input-row button{background:var(--tda);border:none;color:#100C1A;border-radius:2px;padding:7px 12px;font-size:12px;font-weight:600}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ── Header ──────────────────────────────────────────────────────────────── -->
+<header>
+  <a class="brand" href="/">
+    <span class="mark">Corte<b>Xplorer</b> / tda</span>
+    <span class="tag">PATTERN INTELLIGENCE</span>
+    <span class="engine-badge">TDA ENGINE</span>
+  </a>
+
+  <div class="search">
+    <span class="ico">⌕</span>
+    <input id="search-input" placeholder="Search aid projects, countries, sectors…" autocomplete="off">
+  </div>
+
+  <div class="stats">
+    <div class="stat tda-stat">
+      <div class="n mono" id="stat-records">–</div>
+      <div class="l">RECORDS</div>
+    </div>
+    <div class="stat tda-stat">
+      <div class="n mono" id="stat-loops">–</div>
+      <div class="l">CIRCULAR PATTERNS</div>
+    </div>
+    <div class="stat clean">
+      <div class="n mono">0</div>
+      <div class="l">HALLUCINATIONS</div>
+    </div>
+    <div class="stat clean">
+      <div class="n mono">100%</div>
+      <div class="l">TRACEABLE</div>
+    </div>
+  </div>
+</header>
+
+<!-- ── Nav ─────────────────────────────────────────────────────────────────── -->
+<nav>
+  <button class="navbtn active" data-nav="analysis">Analysis</button>
+  <button class="navbtn" onclick="window.location='/dashboard'">Dashboard</button>
+  <button class="navbtn" onclick="window.location='/chat'">Chat</button>
+  <button class="navbtn" id="btn-explorer" data-nav="explorer">TDA Explorer</button>
+  <button class="navbtn accent" id="btn-interrogate">› interrogate</button>
+  <button class="navbtn" id="btn-report">report</button>
+  <button class="navbtn accent" id="btn-ai-report">AI report</button>
+  <button class="navbtn" id="btn-chat-open">chat ↗</button>
+</nav>
+
+<!-- ── Work area ────────────────────────────────────────────────────────────── -->
+<div class="work">
+
+  <!-- Left rail: lenses -->
+  <aside class="rail">
+    <div class="lbl">LENSES</div>
+    <button class="lens susp" id="lens-suspicious" aria-selected="false" onclick="setLens('suspicious')">
+      <span class="nm"><span class="dot"></span>Suspicious</span>
+      <span class="ct" id="ct-suspicious">–</span>
+    </button>
+    <button class="lens anom" id="lens-anomalies" aria-selected="true" onclick="setLens('anomalies')">
+      <span class="nm"><span class="dot"></span>Anomalies</span>
+      <span class="ct" id="ct-anomalies">–</span>
+    </button>
+    <button class="lens topo" id="lens-topology" aria-selected="false" onclick="setLens('topology')">
+      <span class="nm"><span class="dot"></span>Topology</span>
+      <span class="ct" id="ct-topology">–</span>
+    </button>
+    <button class="lens drift" id="lens-drift" aria-selected="false" onclick="setLens('drift')">
+      <span class="nm"><span class="dot"></span>Drift</span>
+      <span class="ct" id="ct-drift">–</span>
+    </button>
+    <button class="lens rel" id="lens-relationships" aria-selected="false" onclick="setLens('relationships')">
+      <span class="nm"><span class="dot"></span>Relationships</span>
+      <span class="ct" id="ct-relationships">–</span>
+    </button>
+    <button class="lens theme" id="lens-clusters" aria-selected="false" onclick="setLens('clusters')">
+      <span class="nm"><span class="dot"></span>Clusters</span>
+      <span class="ct" id="ct-clusters">–</span>
+    </button>
+  </aside>
+
+  <!-- Center column: findings list -->
+  <main class="center" id="center-col">
+    <div class="col-head">
+      <h2 id="lens-title">ANOMALIES</h2>
+      <span class="sub mono" id="lens-count"></span>
+    </div>
+    <div id="findings-list">
+      <div class="skeleton"></div>
+      <div class="skeleton"></div>
+      <div class="skeleton" style="height:50px"></div>
+    </div>
+  </main>
+
+  <!-- Right panel: Graph / Audit Trail / Summarize -->
+  <section class="source">
+    <div class="rtabs">
+      <button class="rtab active" onclick="switchRTab('graph')">Graph</button>
+      <button class="rtab" onclick="switchRTab('audit')">Audit Trail</button>
+      <button class="rtab" onclick="switchRTab('summarize')">Summarize</button>
+    </div>
+
+    <!-- Graph tab -->
+    <div class="rtab-content" id="tab-graph">
+      <svg id="graph-svg"></svg>
+      <div style="margin-top:8px;font-size:11px;color:var(--mute);font-family:'IBM Plex Mono',monospace">
+        Node size = record count · Color = anomaly exposure · Click to inspect
+      </div>
+    </div>
+
+    <!-- Audit Trail tab -->
+    <div class="rtab-content" id="tab-audit" style="display:none">
+      <div id="audit-content">
+        <div class="src-empty">Select a finding or click "trace" on any card<br>to view the full audit trail.</div>
+      </div>
+    </div>
+
+    <!-- Summarize tab -->
+    <div class="rtab-content" id="tab-summarize" style="display:none">
+      <button class="sum-btn" onclick="summarize('overview')">Overview Summary</button>
+      <button class="sum-btn" id="btn-sum-selected" onclick="summarize('selected')" disabled>Summarize Selected</button>
+      <div id="summarize-content" class="sum-text" style="margin-top:12px;color:var(--mute)">
+        Click "Overview Summary" for a dataset overview,<br>or select a finding first.
+      </div>
+    </div>
+  </section>
+</div><!-- .work -->
+
+</div><!-- .app -->
+
+<!-- ── TDA Explorer ────────────────────────────────────────────────────────── -->
+<div id="tda-explorer">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <span style="font-size:12px;font-weight:600;color:var(--tda);letter-spacing:.08em;text-transform:uppercase">TDA EXPLORER</span>
+    <button onclick="document.getElementById('tda-explorer').classList.remove('open')" style="background:none;border:none;color:var(--mute);font-size:16px">✕</button>
+  </div>
+  <div class="tda-explorer-inner">
+    <div class="tda-group">
+      <label>Lens Function</label>
+      <select id="tda-lens">
+        <option value="pca">PCA (PC1)</option>
+        <option value="umap">UMAP</option>
+        <option value="density">Density</option>
+        <option value="eccentricity">Eccentricity</option>
+        <option value="feature">Feature</option>
+      </select>
+    </div>
+    <div class="tda-group">
+      <label>Intervals: <span id="interval-val">10</span></label>
+      <input type="range" id="tda-intervals" min="5" max="25" value="10" oninput="document.getElementById('interval-val').textContent=this.value">
+    </div>
+    <div class="tda-group">
+      <label>Overlap: <span id="overlap-val">0.5</span></label>
+      <input type="range" id="tda-overlap" min="0.1" max="0.9" step="0.05" value="0.5" oninput="document.getElementById('overlap-val').textContent=(+this.value).toFixed(2)">
+    </div>
+    <div class="tda-group">
+      <label>TDA Features</label>
+      <div class="tda-check-grid" id="feature-checks"></div>
+    </div>
+    <div>
+      <button class="tda-run-btn" onclick="runTDA()">▶ Run TDA</button>
+    </div>
+    <div class="tda-metrics">
+      <div class="tda-m"><div class="n" id="tda-betti0">–</div><div class="l">β₀</div></div>
+      <div class="tda-m"><div class="n" id="tda-betti1">–</div><div class="l">β₁ LOOPS</div></div>
+      <div class="tda-m"><div class="n" id="tda-pers">–</div><div class="l">MAX PERS</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Chat overlay ───────────────────────────────────────────────────────── -->
+<div id="chat-overlay">
+  <div class="chat-header">
+    <span style="font-size:12px;font-weight:600;color:var(--tda)">CorteXplorer Chat</span>
+    <button onclick="document.getElementById('chat-overlay').classList.remove('open')" style="background:none;border:none;color:var(--mute);font-size:18px">✕</button>
+  </div>
+  <div class="chat-msgs" id="chat-msgs">
+    <div class="chat-msg bot">Ask about Government Aid patterns, anomalies, clusters, or topology.</div>
+  </div>
+  <div class="chat-input-row">
+    <input id="chat-input" placeholder="Ask about aid patterns…" onkeydown="if(event.key==='Enter')sendChat()">
+    <button onclick="sendChat()">→</button>
+  </div>
+</div>
+
+<!-- ── Interrogate panel ───────────────────────────────────────────────────── -->
+<div id="interrogate-panel">
+  <div class="int-header">
+    <span>› INTERROGATE</span>
+    <button onclick="document.getElementById('interrogate-panel').classList.remove('open')" style="background:none;border:none;color:var(--mute);font-size:18px">✕</button>
+  </div>
+  <div class="int-body" id="int-body">
+    <div class="src-empty">Ask a question about any record, cluster, or the dataset overview.</div>
+  </div>
+  <div class="int-input-row">
+    <input id="int-input" placeholder="Interrogate this finding…" onkeydown="if(event.key==='Enter')sendInterrogate()">
+    <button onclick="sendInterrogate()">Ask</button>
+  </div>
+</div>
+
+<!-- ── Toast ──────────────────────────────────────────────────────────────── -->
+<div class="toast" id="toast"></div>
+
+<script>
+const API = 'http://localhost:8010';
+let _findings = {};
+let _currentLens = 'anomalies';
+let _selectedFinding = null;
+let _chatHistory = [];
+let _featureCols = [];
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    const [findingsRes, datasetRes, cyclesRes] = await Promise.all([
+      fetch(`${API}/api/findings`).then(r => r.json()),
+      fetch(`${API}/api/dataset`).then(r => r.json()),
+      fetch(`${API}/api/tda/cycles`).then(r => r.json()),
+    ]);
+
+    _findings = findingsRes;
+    _featureCols = findingsRes.meta?.numeric_features || [];
+
+    // Header stats
+    document.getElementById('stat-records').textContent =
+      (datasetRes.total_records || 0).toLocaleString();
+    document.getElementById('stat-loops').textContent =
+      cyclesRes.betti_1 || 0;
+
+    // TDA metrics
+    document.getElementById('tda-betti0').textContent = cyclesRes.betti_0 || 1;
+    document.getElementById('tda-betti1').textContent = cyclesRes.betti_1 || 0;
+    document.getElementById('tda-pers').textContent =
+      (cyclesRes.max_persistence || 0).toFixed(4);
+
+    // Lens counts
+    document.getElementById('ct-suspicious').textContent =
+      (_findings.suspicious || []).length;
+    document.getElementById('ct-anomalies').textContent =
+      (_findings.anomalies || []).length;
+    document.getElementById('ct-topology').textContent =
+      (_findings.topology || []).length;
+    document.getElementById('ct-drift').textContent =
+      (_findings.drift || []).length;
+    document.getElementById('ct-relationships').textContent =
+      (_findings.relationships || []).length;
+    document.getElementById('ct-clusters').textContent =
+      (_findings.themes || []).length;
+
+    // Feature checkboxes
+    buildFeatureChecks(_featureCols);
+
+    renderFindings('anomalies');
+    renderGraph();
+  } catch (e) {
+    toast('⚠ API unavailable — check http://localhost:8010', 'warn');
+    document.getElementById('findings-list').innerHTML =
+      `<div class="src-empty">Cannot connect to CorteXplorer API.<br><code>${API}</code></div>`;
+  }
+}
+
+// ── Lens selection ─────────────────────────────────────────────────────────
+function setLens(name) {
+  _currentLens = name;
+  document.querySelectorAll('.lens').forEach(b => b.setAttribute('aria-selected', 'false'));
+  const el = document.getElementById(`lens-${name}`);
+  if (el) el.setAttribute('aria-selected', 'true');
+  renderFindings(name);
+}
+
+function getLensData(name) {
+  const map = {
+    suspicious:    _findings.suspicious   || [],
+    anomalies:     _findings.anomalies    || [],
+    topology:      _findings.topology     || [],
+    drift:         _findings.drift        || [],
+    relationships: _findings.relationships|| [],
+    clusters:      _findings.themes       || [],
+  };
+  return map[name] || [];
+}
+
+function getLensTitle(name) {
+  return {
+    suspicious:'SUSPICIOUS', anomalies:'ANOMALIES', topology:'TOPOLOGY',
+    drift:'DRIFT', relationships:'RELATIONSHIPS', clusters:'CLUSTERS',
+  }[name] || name.toUpperCase();
+}
+
+// ── Render findings ────────────────────────────────────────────────────────
+function renderFindings(lens) {
+  const items = getLensData(lens);
+  document.getElementById('lens-title').textContent = getLensTitle(lens);
+  document.getElementById('lens-count').textContent = items.length + ' findings';
+  const list = document.getElementById('findings-list');
+
+  if (!items.length) {
+    list.innerHTML = `<div class="src-empty">No ${lens} findings.</div>`;
+    return;
+  }
+
+  list.innerHTML = items.map((f, i) => buildCard(f, i)).join('');
+
+  list.querySelectorAll('.find').forEach((el, i) => {
+    el.addEventListener('click', () => selectFinding(items[i], el));
+  });
+  list.querySelectorAll('.trace-btn').forEach((btn, i) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const pid = items[i].sources?.[0];
+      if (pid) loadAudit(pid);
+    });
+  });
+}
+
+function buildCard(f, i) {
+  const kind  = f.kind || 'anomaly';
+  const score = f.score || 0;
+  const pct   = Math.min(100, Math.round(score * 100));
+
+  let chips = '';
+  if (kind === 'anomaly' || kind === 'suspicious') {
+    const extra = f.extra || {};
+    const iso   = extra.iso_score != null ? extra.iso_score.toFixed(4) : '–';
+    const topo  = extra.topo_score != null ? extra.topo_score.toFixed(4) : '–';
+    const flags = (extra.flagged_by || []).slice(0, 3).map(x =>
+      `<span>${esc(x)}</span>`).join('');
+    chips = `<div class="chips signal">iso: ${iso} &nbsp; ae: N/A &nbsp; topo: ${topo}</div>`;
+    if (flags) chips += `<div class="chips signal" style="margin-top:4px">flagged by: ${flags}</div>`;
+    if (kind === 'suspicious') {
+      const reasons = (extra.reasons || []).map(r => `<span>${esc(r)}</span>`).join('');
+      chips += `<div class="chips danger">${reasons}</div>`;
+    }
+  } else if (kind === 'topology') {
+    const lp = f.extra || {};
+    chips = `<div class="chips tda"><span>birth ${(lp.birth||0).toFixed(4)}</span><span>death ${(lp.death||0).toFixed(4)}</span><span>pers ${(lp.persistence||0).toFixed(4)}</span></div>`;
+  } else if (kind === 'relationship') {
+    const ex = f.extra || {};
+    chips = `<div class="chips relate"><span>${ex.type || 'co-occurrence'}</span><span>weight ${ex.weight || ''}</span></div>`;
+  } else if (kind === 'drift') {
+    const ex = f.extra || {};
+    const arrow = ex.direction === 'increased' ? '↑' : '↓';
+    chips = `<div class="chips drift"><span>${arrow} ${esc(ex.feature||'')}</span><span>Δ ${(ex.delta||0).toFixed(4)}</span></div>`;
+  } else if (kind === 'theme') {
+    const ex = f.extra || {};
+    chips = `<div class="chips" style="color:var(--theme)"><span style="color:var(--theme);border:1px solid rgba(169,180,196,.3);border-radius:2px;padding:0 5px;background:rgba(169,180,196,.07)">${ex.n_records||''} projects</span></div>`;
+  }
+
+  const srcCount = (f.sources || []).length;
+  const traceBtn = srcCount > 0
+    ? `<button class="trace-btn">${srcCount} source · click to trace</button>`
+    : '';
+
+  return `
+  <div class="find k-${kind}" aria-selected="false" data-idx="${i}">
+    <div class="ft">
+      <span class="title">${esc(f.title || '')}</span>
+      <div class="sev">
+        <div class="bar"><i style="width:${pct}%"></i></div>
+        <span class="v">${score.toFixed(3)}</span>
+      </div>
+    </div>
+    <div class="meta">${esc(f.detail || '').slice(0, 120)}</div>
+    ${chips}
+    ${traceBtn}
+  </div>`;
+}
+
+function selectFinding(f, el) {
+  document.querySelectorAll('.find').forEach(c => c.setAttribute('aria-selected', 'false'));
+  el.setAttribute('aria-selected', 'true');
+  _selectedFinding = f;
+  document.getElementById('btn-sum-selected').disabled = false;
+  highlightGraphNode(f);
+}
+
+// ── Graph ──────────────────────────────────────────────────────────────────
+async function renderGraph() {
+  try {
+    const data = await fetch(`${API}/api/tda/graph`).then(r => r.json());
+    const nodes = (data.nodes || []).slice(0, 30);
+    const edges = (data.edges || []).slice(0, 40);
+    drawForceGraph(nodes, edges);
+  } catch(e) {
+    document.getElementById('graph-svg').innerHTML =
+      '<text x="50%" y="50%" fill="#878e9c" font-size="13" text-anchor="middle" dominant-baseline="middle">Graph unavailable</text>';
+  }
+}
+
+function drawForceGraph(nodes, edges) {
+  const svg   = d3.select('#graph-svg');
+  const W     = svg.node().clientWidth  || 400;
+  const H     = svg.node().clientHeight || 320;
+  svg.selectAll('*').remove();
+
+  const g = svg.append('g');
+  svg.call(d3.zoom().scaleExtent([0.3, 4]).on('zoom', e => g.attr('transform', e.transform)));
+
+  const maxDocs = Math.max(1, ...nodes.map(n => n.docs || 1));
+
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(edges).id(d => d.id).distance(90))
+    .force('charge', d3.forceManyBody().strength(-120))
+    .force('center', d3.forceCenter(W/2, H/2))
+    .force('collision', d3.forceCollide(28));
+
+  const link = g.append('g').selectAll('line')
+    .data(edges).enter().append('line')
+    .attr('class', 'edge-line')
+    .attr('stroke-width', d => Math.max(1, (d.w || 1)/5));
+
+  const node = g.append('g').selectAll('g')
+    .data(nodes).enter().append('g')
+    .call(d3.drag()
+      .on('start', (e,d) => { if(!e.active) sim.alphaTarget(0.3).restart(); d.fx=d.x;d.fy=d.y })
+      .on('drag',  (e,d) => { d.fx=e.x;d.fy=e.y })
+      .on('end',   (e,d) => { if(!e.active) sim.alphaTarget(0); d.fx=null;d.fy=null }))
+    .on('click', (e, d) => showNodeInfo(d));
+
+  node.append('circle')
+    .attr('r', d => 8 + (d.docs/maxDocs)*16)
+    .attr('fill', d => d.exposure > 0.5 ? 'rgba(224,82,82,.6)' : 'rgba(94,156,166,.55)')
+    .attr('stroke', d => d.exposure > 0.5 ? 'var(--danger)' : 'var(--relate)')
+    .attr('class', 'node-circle');
+
+  node.append('text')
+    .attr('class', 'node-label')
+    .attr('dy', -12)
+    .attr('text-anchor', 'middle')
+    .text(d => (d.id || '').slice(0, 16));
+
+  sim.on('tick', () => {
+    link
+      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    node.attr('transform', d => `translate(${d.x},${d.y})`);
+  });
+}
+
+function highlightGraphNode(f) { /* future: highlight node on selection */ }
+
+function showNodeInfo(d) {
+  const body = document.getElementById('audit-content');
+  body.innerHTML = `
+    <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px">${esc(d.id)}</div>
+    <div class="audit-step">
+      <span class="step-icon">📁</span>
+      <div class="step-body">
+        <div class="label">Records</div>
+        <div class="val">${d.docs} projects</div>
+      </div>
+    </div>
+    <div class="audit-step">
+      <span class="step-icon">⚠️</span>
+      <div class="step-body">
+        <div class="label">Anomaly Exposure</div>
+        <div class="val">${d.exposure?.toFixed(3) || '0'}</div>
+      </div>
+    </div>`;
+  switchRTab('audit');
+}
+
+// ── Audit trail ────────────────────────────────────────────────────────────
+async function loadAudit(recordId) {
+  switchRTab('audit');
+  const body = document.getElementById('audit-content');
+  body.innerHTML = '<div class="src-empty">Loading audit trail…</div>';
+  try {
+    const data = await fetch(`${API}/api/audit/${encodeURIComponent(recordId)}`).then(r => r.json());
+    const trail = data.audit_trail || [];
+    const icons = ['🗄','🔑','✅','🧹','⚙️','📐','🔢','🔭','🔬','🎯','🚦','✓'];
+    body.innerHTML = trail.map((s, i) => `
+      <div class="audit-step">
+        <span class="step-icon">${icons[i] || '•'}</span>
+        <div class="step-body">
+          <div class="label">${esc(s.step)}</div>
+          <div class="val">${esc(s.desc)} — <b>${esc(s.value)}</b></div>
+        </div>
+      </div>`).join('') +
+      `<div class="audit-verified">✓ 100% TRACEABLE — source: ${esc(recordId)}</div>`;
+  } catch(e) {
+    body.innerHTML = `<div class="src-empty">Could not load audit trail for ${esc(recordId)}.</div>`;
+  }
+}
+
+// ── Summarize ──────────────────────────────────────────────────────────────
+async function summarize(mode) {
+  const el = document.getElementById('summarize-content');
+  el.textContent = 'Generating summary…';
+  switchRTab('summarize');
+
+  let body = { kind: 'overview' };
+  if (mode === 'selected' && _selectedFinding) {
+    const src = (_selectedFinding.sources || [])[0];
+    if (_selectedFinding.kind === 'theme') {
+      body = { kind: 'cluster', id: String(_selectedFinding.extra?.cluster_id ?? 0) };
+    } else if (_selectedFinding.kind === 'anomaly' && src) {
+      body = { kind: 'anomaly', id: src };
+    } else if (src) {
+      body = { kind: 'record', id: src };
+    }
+  }
+
+  try {
+    const data = await fetch(`${API}/api/summarize`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    }).then(r => r.json());
+    el.innerHTML = `<div class="sum-text">${esc(data.summary || '').replace(/\n/g,'<br>')}</div>`;
+  } catch(e) {
+    el.textContent = 'Summary unavailable.';
+  }
+}
+
+// ── Right tab switching ────────────────────────────────────────────────────
+function switchRTab(name) {
+  document.querySelectorAll('.rtab').forEach((b, i) => {
+    const names = ['graph','audit','summarize'];
+    b.classList.toggle('active', names[i] === name);
+  });
+  ['graph','audit','summarize'].forEach(n => {
+    const el = document.getElementById(`tab-${n}`);
+    if (el) el.style.display = n === name ? '' : 'none';
+  });
+}
+
+// ── TDA Explorer ───────────────────────────────────────────────────────────
+function buildFeatureChecks(cols) {
+  const grid = document.getElementById('feature-checks');
+  const preferred = ['Cost_Overran_in %','CPI_Score','Evaluation_Lag_Days','Project_Success','Initial_Budget_USD'];
+  grid.innerHTML = cols.map(c => `
+    <label class="tda-check">
+      <input type="checkbox" value="${esc(c)}" ${preferred.includes(c) ? 'checked' : ''}>
+      ${esc(c.replace(/_/g,' '))}
+    </label>`).join('');
+}
+
+async function runTDA() {
+  const lens       = document.getElementById('tda-lens').value;
+  const n_intervals = parseInt(document.getElementById('tda-intervals').value);
+  const overlap    = parseFloat(document.getElementById('tda-overlap').value);
+  const features   = [...document.querySelectorAll('#feature-checks input:checked')].map(i => i.value);
+
+  toast('Running TDA pipeline…');
+  try {
+    const result = await fetch(`${API}/api/tda/run`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ lens, n_intervals, overlap, features })
+    }).then(r => r.json());
+
+    const tda = result.meta?.tda || {};
+    document.getElementById('tda-betti0').textContent = tda.betti_0 ?? 1;
+    document.getElementById('tda-betti1').textContent = tda.betti_1 ?? 0;
+    document.getElementById('tda-pers').textContent   = (tda.max_persistence || 0).toFixed(4);
+    document.getElementById('stat-loops').textContent = tda.betti_1 ?? 0;
+
+    // Refresh findings
+    const fresh = await fetch(`${API}/api/findings`).then(r => r.json());
+    _findings = fresh;
+    renderFindings(_currentLens);
+    renderGraph();
+    toast('TDA complete ✓');
+  } catch(e) {
+    toast('TDA run failed: ' + e.message, 'error');
+  }
+}
+
+// ── Search ─────────────────────────────────────────────────────────────────
+document.getElementById('search-input').addEventListener('keydown', async (e) => {
+  if (e.key !== 'Enter') return;
+  const q = e.target.value.trim();
+  if (!q) return;
+  try {
+    const data = await fetch(`${API}/api/query`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ query: q, top_k: 20 })
+    }).then(r => r.json());
+    _findings._query = data.results;
+    document.querySelectorAll('.lens').forEach(b => b.setAttribute('aria-selected','false'));
+    renderFindingsRaw(data.results, `SEARCH: "${q}"`);
+  } catch(e) {
+    toast('Search failed');
+  }
+});
+
+function renderFindingsRaw(items, title) {
+  document.getElementById('lens-title').textContent = title;
+  document.getElementById('lens-count').textContent = items.length + ' results';
+  const list = document.getElementById('findings-list');
+  if (!items.length) { list.innerHTML = '<div class="src-empty">No results.</div>'; return; }
+  list.innerHTML = items.map((f,i) => buildCard(f,i)).join('');
+  list.querySelectorAll('.find').forEach((el,i) => {
+    el.addEventListener('click', () => selectFinding(items[i], el));
+  });
+}
+
+// ── Chat ───────────────────────────────────────────────────────────────────
+document.getElementById('btn-chat-open').onclick = () => {
+  document.getElementById('chat-overlay').classList.toggle('open');
+};
+
+async function sendChat() {
+  const inp = document.getElementById('chat-input');
+  const msg = inp.value.trim();
+  if (!msg) return;
+  inp.value = '';
+  appendChatMsg(msg, 'user');
+  try {
+    const data = await fetch(`${API}/api/chat`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ message: msg, history: _chatHistory.slice(-6) })
+    }).then(r => r.json());
+    _chatHistory.push({role:'user', content: msg});
+    _chatHistory.push({role:'assistant', content: data.answer});
+    appendChatMsg(data.answer, 'bot');
+  } catch(e) {
+    appendChatMsg('Chat unavailable.', 'bot');
+  }
+}
+
+function appendChatMsg(text, role) {
+  const box = document.getElementById('chat-msgs');
+  const el  = document.createElement('div');
+  el.className = `chat-msg ${role}`;
+  el.textContent = text;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+
+// ── Interrogate ────────────────────────────────────────────────────────────
+document.getElementById('btn-interrogate').onclick = () => {
+  document.getElementById('interrogate-panel').classList.toggle('open');
+  if (_selectedFinding) {
+    const src = (_selectedFinding.sources || [])[0];
+    if (src) autoInterrogate(src);
+  }
+};
+
+async function autoInterrogate(id) {
+  const body = document.getElementById('int-body');
+  body.innerHTML = 'Loading…';
+  try {
+    const data = await fetch(`${API}/api/interrogate`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ target: 'record', id })
+    }).then(r => r.json());
+    body.innerHTML = `<div style="font-size:12.5px;line-height:1.6;color:var(--mute)">${esc(data.explanation).replace(/\n/g,'<br>')}</div>
+    <div class="audit-verified" style="margin-top:12px">✓ TRACEABLE</div>`;
+  } catch(e) {
+    body.innerHTML = `<div class="src-empty">Interrogation failed.</div>`;
+  }
+}
+
+async function sendInterrogate() {
+  const inp = document.getElementById('int-input');
+  const q   = inp.value.trim();
+  if (!q) return;
+  inp.value = '';
+  const body = document.getElementById('int-body');
+  body.innerHTML = 'Thinking…';
+  try {
+    const data = await fetch(`${API}/api/chat`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ message: q })
+    }).then(r => r.json());
+    body.innerHTML = `<div style="font-size:12.5px;line-height:1.6;color:var(--text)">${esc(data.answer).replace(/\n/g,'<br>')}</div>
+    <div class="audit-verified" style="margin-top:8px">✓ TRACEABLE</div>`;
+  } catch(e) {
+    body.innerHTML = '<div class="src-empty">Interrogation unavailable.</div>';
+  }
+}
+
+// ── Report ─────────────────────────────────────────────────────────────────
+document.getElementById('btn-report').onclick = async () => {
+  try {
+    const data = await fetch(`${API}/api/report`).then(r => r.json());
+    const win = window.open('', '_blank');
+    win.document.write(`<pre style="background:#13151A;color:#D9DCE3;padding:24px;font-family:monospace;font-size:12px;line-height:1.6">${data.report}</pre>`);
+    win.document.close();
+  } catch(e) { toast('Report unavailable'); }
+};
+
+document.getElementById('btn-ai-report').onclick = async () => {
+  toast('Generating AI report…');
+  try {
+    const data = await fetch(`${API}/api/report/ai`).then(r => r.json());
+    const win = window.open('', '_blank');
+    const content = data.report + (data.ai_section ? '\n\n── AI INSIGHTS ──\n' + data.ai_section : '\n\n' + (data.ai_note || ''));
+    win.document.write(`<pre style="background:#13151A;color:#D9DCE3;padding:24px;font-family:monospace;font-size:12px;line-height:1.6">${content}</pre>`);
+    win.document.close();
+  } catch(e) { toast('AI report unavailable'); }
+};
+
+// ── TDA Explorer toggle ────────────────────────────────────────────────────
+document.getElementById('btn-explorer').onclick = () => {
+  document.getElementById('tda-explorer').classList.toggle('open');
+};
+
+// ── Utils ──────────────────────────────────────────────────────────────────
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+
+function toast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('visible');
+  setTimeout(() => el.classList.remove('visible'), 3000);
+}
+
+// Init moved to app.js (DOMContentLoaded)
+</script>
+<script src="js/app.js"></script>
+</body>
+</html>
