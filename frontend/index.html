@@ -273,7 +273,7 @@ nav{
   <button class="navbtn" id="btn-report">report</button>
   <button class="navbtn accent" id="btn-ai-report">AI report</button>
   <button class="navbtn" id="btn-chat-open">chat ↗</button>
-  <button class="navbtn" onclick="window.location='/gov-aid-report'" style="color:var(--drift);border-left:1px solid var(--line);margin-left:8px;padding-left:16px">Gov Aid Report</button>
+  <button class="navbtn" onclick="showView('gov-aid-report')" style="color:var(--drift);border-left:1px solid var(--line);margin-left:8px;padding-left:16px">Gov Aid Report</button>
 </nav>
 
 <!-- ── Work area ────────────────────────────────────────────────────────────── -->
@@ -448,6 +448,31 @@ nav{
       <div id="report-ai-text" style="font-size:13px;line-height:1.7;color:var(--mute)"></div>
     </div>
   </div>
+</div>
+
+
+
+<!-- ── Gov Aid Report view (in-page iframe) ──────────────────────────────── -->
+<div id="view-gov-aid-report" style="display:none;flex:1;flex-direction:column;min-height:0">
+  <div style="display:flex;align-items:center;gap:12px;padding:10px 18px;
+    border-bottom:1px solid var(--line);flex:none;background:var(--panel)">
+    <button onclick="showView('analysis')"
+      style="background:none;border:1px solid var(--line);color:var(--mute);
+      border-radius:3px;padding:5px 12px;font-size:11px;
+      font-family:'IBM Plex Mono',monospace;cursor:pointer">← Analysis</button>
+    <span style="font-size:11px;color:var(--drift);
+      font-family:'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase">
+      GOV AID REPORT
+    </span>
+    <a href="/gov-aid-report" target="_blank"
+      style="margin-left:auto;font-size:11px;color:var(--mute);
+      font-family:'IBM Plex Mono',monospace;text-decoration:none;
+      border:1px solid var(--line);border-radius:3px;padding:5px 12px">
+      ↗ Open full page
+    </a>
+  </div>
+  <iframe id="gov-aid-iframe" src="" style="flex:1;border:none;width:100%;min-height:0"
+    title="Government Aid Report"></iframe>
 </div>
 
 

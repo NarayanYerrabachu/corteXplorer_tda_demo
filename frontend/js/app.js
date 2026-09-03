@@ -170,7 +170,7 @@ function initReportButtons() {
 
 let _activeView = 'analysis';
 
-const VIEWS = ['work', 'view-tda-explorer', 'view-report'];
+const VIEWS = ['work', 'view-tda-explorer', 'view-report', 'view-gov-aid-report'];
 
 function showView(name) {
   _activeView = name;
@@ -188,6 +188,13 @@ function showView(name) {
     if (el) el.style.display = 'flex';
     buildTDAFeatureList();
     drawTDAExplorerGraph();
+
+  } else if (name === 'gov-aid-report') {
+    const el = document.getElementById('view-gov-aid-report');
+    if (el) el.style.display = 'flex';
+    // Lazy-load the iframe only on first open
+    const iframe = document.getElementById('gov-aid-iframe');
+    if (iframe && !iframe.src) iframe.src = '/gov-aid-report';
 
   } else if (name === 'report') {
     const el = document.getElementById('view-report');
