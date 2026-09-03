@@ -1,20 +1,26 @@
-// ── Layer switcher: SVG ↔ HTML ────────────────────────────────────────────────
-// Bipartite graph renders into #graph-html-layer (preserves CSS arc animation).
-// All other graphs render into #graph-svg via D3.
+// ── Layer helpers ─────────────────────────────────────────────────────────────
+// Bipartite renders into #graph-html-layer; D3 graphs render into #graph-svg.
+// We never hide either layer — just clear the one not in use so it takes no space.
 
-function _showSvgLayer() {
-  const svg = document.getElementById('graph-svg');
-  const html = document.getElementById('graph-html-layer');
-  if (svg)  svg.style.display  = 'block';
-  if (html) html.style.display = 'none';
+function _clearHtmlLayer() {
+  const el = document.getElementById('graph-html-layer');
+  if (el) { el.innerHTML = ''; el.style.minHeight = '0'; el.style.flex = '0'; }
 }
 
-function _showHtmlLayer() {
+function _useHtmlLayer() {
+  const el = document.getElementById('graph-html-layer');
+  if (el) { el.style.flex = '1'; el.style.minHeight = '260px'; }
+  // Clear SVG content but keep it in DOM
   const svg = document.getElementById('graph-svg');
-  const html = document.getElementById('graph-html-layer');
-  if (svg)  svg.style.display  = 'none';
-  if (html) html.style.display = 'block';
-  return html;
+  if (svg) { d3.select(svg).selectAll('*').remove(); svg.style.flex = '0'; svg.style.minHeight = '0'; }
+  return el;
+}
+
+function _useSvgLayer() {
+  const el = document.getElementById('graph-html-layer');
+  if (el) { el.innerHTML = ''; el.style.flex = '0'; el.style.minHeight = '0'; }
+  const svg = document.getElementById('graph-svg');
+  if (svg) { svg.style.flex = '1'; svg.style.minHeight = '300px'; }
 }
 
 // ── Context-sensitive graph panel ────────────────────────────────────────────
@@ -45,12 +51,12 @@ async function renderGraphForLens(lensName) {
     // Abort if a newer lens request arrived while we were fetching
     if (_wantedLens !== lensName) return;
 
-    // Relationships uses the HTML layer; all others use the D3 SVG layer
+    // Relationships → HTML layer; all others → D3 SVG layer
     if (lensName === 'relationships') {
-      _showHtmlLayer();
+      _useHtmlLayer();
       drawBipartiteGraph(_findingsData.relationships || []);
     } else {
-      _showSvgLayer();
+      _useSvgLayer();
       switch (lensName) {
         case 'topology':  drawTopologyScatter(_graphData, _findingsData); break;
         case 'suspicious':drawSuspiciousChart(_findingsData.suspicious || []); break;
@@ -323,7 +329,6 @@ function drawBipartiteGraph(relationships) {
     <span style="color:var(--relate)">●</span> clean
   </div>`;
 
-  // Render into HTML layer (NOT the SVG — replacing outerHTML breaks subsequent calls)
   const layer = document.getElementById('graph-html-layer');
   if (!layer) return;
   layer.innerHTML = `<div style="width:100%;padding:4px 0">${svgStr}${legend}</div>`;
