@@ -1,3 +1,22 @@
+// ── Layer switcher: SVG ↔ HTML ────────────────────────────────────────────────
+// Bipartite graph renders into #graph-html-layer (preserves CSS arc animation).
+// All other graphs render into #graph-svg via D3.
+
+function _showSvgLayer() {
+  const svg = document.getElementById('graph-svg');
+  const html = document.getElementById('graph-html-layer');
+  if (svg)  svg.style.display  = 'block';
+  if (html) html.style.display = 'none';
+}
+
+function _showHtmlLayer() {
+  const svg = document.getElementById('graph-svg');
+  const html = document.getElementById('graph-html-layer');
+  if (svg)  svg.style.display  = 'none';
+  if (html) html.style.display = 'block';
+  return html;
+}
+
 // ── Context-sensitive graph panel ────────────────────────────────────────────
 // Renders different graph types based on the active lens:
 //   topology     → Topology Mapper scatter (dots × time)
@@ -26,14 +45,20 @@ async function renderGraphForLens(lensName) {
     // Abort if a newer lens request arrived while we were fetching
     if (_wantedLens !== lensName) return;
 
-    switch (lensName) {
-      case 'topology':      drawTopologyScatter(_graphData, _findingsData); break;
-      case 'relationships': drawBipartiteGraph(_findingsData.relationships || []); break;
-      case 'suspicious':    drawSuspiciousChart(_findingsData.suspicious || []); break;
-      case 'anomalies':     drawAnomalyScatter(_findingsData.anomalies || []); break;
-      case 'clusters':      drawClusterChart(_findingsData.themes || []); break;
-      case 'drift':         drawDriftChart(_findingsData.drift || []); break;
-      default:              drawTopologyScatter(_graphData, _findingsData);
+    // Relationships uses the HTML layer; all others use the D3 SVG layer
+    if (lensName === 'relationships') {
+      _showHtmlLayer();
+      drawBipartiteGraph(_findingsData.relationships || []);
+    } else {
+      _showSvgLayer();
+      switch (lensName) {
+        case 'topology':  drawTopologyScatter(_graphData, _findingsData); break;
+        case 'suspicious':drawSuspiciousChart(_findingsData.suspicious || []); break;
+        case 'anomalies': drawAnomalyScatter(_findingsData.anomalies || []); break;
+        case 'clusters':  drawClusterChart(_findingsData.themes || []); break;
+        case 'drift':     drawDriftChart(_findingsData.drift || []); break;
+        default:          drawTopologyScatter(_graphData, _findingsData);
+      }
     }
     updateGraphCaption(lensName);
   } catch (e) {
@@ -298,12 +323,12 @@ function drawBipartiteGraph(relationships) {
     <span style="color:var(--relate)">●</span> clean
   </div>`;
 
-  // Replace SVG with the HTML string (preserves CSS class animations)
-  svgEl.outerHTML = `<div id="graph-svg-wrap" style="width:100%;flex:1;min-height:0;overflow:auto">
-    ${svgStr}${legend}</div>`;
+  // Render into HTML layer (NOT the SVG — replacing outerHTML breaks subsequent calls)
+  const layer = document.getElementById('graph-html-layer');
+  if (!layer) return;
+  layer.innerHTML = `<div style="width:100%;padding:4px 0">${svgStr}${legend}</div>`;
 
-  // Reattach events on the new DOM
-  const wrap = document.getElementById('graph-svg-wrap');
+  const wrap = layer;
   if (!wrap) return;
   const tip = _tooltip();
 
