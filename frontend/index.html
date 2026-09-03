@@ -169,25 +169,7 @@ nav{
 .sum-btn{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:3px;padding:7px 14px;font-size:12px;margin:6px 4px 6px 0}
 .sum-btn:hover{border-color:var(--tda)}
 
-/* ── TDA Explorer panel ── */
-#tda-explorer{
-  position:fixed;bottom:0;left:170px;right:0;
-  background:var(--panel);border-top:1px solid var(--tda);
-  padding:12px 18px;
-  display:none;z-index:100;
-}
-#tda-explorer.open{display:block}
-.tda-explorer-inner{display:flex;gap:24px;align-items:flex-end;flex-wrap:wrap}
-.tda-group label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);display:block;margin-bottom:6px}
-.tda-group select,.tda-group input[type=range]{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:2px;padding:5px 8px;font-size:12px}
-.tda-check-grid{display:flex;flex-wrap:wrap;gap:6px}
-.tda-check{font-size:11px;font-family:'IBM Plex Mono',monospace;cursor:pointer;display:flex;align-items:center;gap:4px;color:var(--mute)}
-.tda-check input{accent-color:var(--tda)}
-.tda-run-btn{background:var(--tda);border:none;color:#100C1A;font-weight:600;border-radius:3px;padding:8px 18px;font-size:13px}
-.tda-run-btn:hover{opacity:.85}
-.tda-metrics{display:flex;gap:16px}
-.tda-m .n{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:16px;color:var(--tda)}
-.tda-m .l{font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em}
+/* TDA Explorer is a full view — styles are inline */
 
 /* ── Chat overlay ── */
 #chat-overlay{
@@ -364,45 +346,83 @@ nav{
 
 </div><!-- .app -->
 
-<!-- ── TDA Explorer ────────────────────────────────────────────────────────── -->
-<div id="tda-explorer">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-    <span style="font-size:12px;font-weight:600;color:var(--tda);letter-spacing:.08em;text-transform:uppercase">TDA EXPLORER</span>
-    <button onclick="document.getElementById('tda-explorer').classList.remove('open')" style="background:none;border:none;color:var(--mute);font-size:16px">✕</button>
-  </div>
-  <div class="tda-explorer-inner">
-    <div class="tda-group">
-      <label>Lens Function</label>
-      <select id="tda-lens">
-        <option value="pca">PCA (PC1)</option>
-        <option value="umap">UMAP</option>
-        <option value="density">Density</option>
-        <option value="eccentricity">Eccentricity</option>
-        <option value="feature">Feature</option>
-      </select>
+
+<!-- ── TDA Explorer view (full area, shown instead of .work) ─────────────── -->
+<div id="view-tda-explorer" style="display:none;flex:1;min-height:0;background:var(--ink)">
+  <div style="display:grid;grid-template-columns:220px 1fr 1.4fr;height:100%;min-height:0">
+
+    <!-- Left: Feature Selection -->
+    <div style="border-right:1px solid var(--line);padding:16px 12px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
+      <div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);padding-bottom:6px;border-bottom:1px solid var(--line)">TDA FEATURES</div>
+      <div style="font-size:11px;color:var(--mute);margin-bottom:2px">Select features to include in the TDA pipeline:</div>
+      <div id="tda-feat-list" style="display:flex;flex-direction:column;gap:6px"></div>
     </div>
-    <div class="tda-group">
-      <label>Intervals: <span id="interval-val">10</span></label>
-      <input type="range" id="tda-intervals" min="5" max="25" value="10" oninput="document.getElementById('interval-val').textContent=this.value">
+
+    <!-- Center: Configuration -->
+    <div style="border-right:1px solid var(--line);padding:20px 18px;overflow-y:auto">
+      <div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);margin-bottom:16px">CONFIGURATION</div>
+
+      <div style="margin-bottom:16px">
+        <label style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);display:block;margin-bottom:6px">Lens Function</label>
+        <select id="tda-lens" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:3px;padding:7px 10px;font-size:12px;font-family:inherit">
+          <option value="pca">PCA (Principal Component 1)</option>
+          <option value="umap">UMAP (Dimensionality Reduction)</option>
+          <option value="density">Density (Kernel Density)</option>
+          <option value="eccentricity">Eccentricity (Mean Distance)</option>
+          <option value="feature">Feature (Raw Column)</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);display:block;margin-bottom:6px">Intervals: <span id="interval-val">15</span></label>
+        <input type="range" id="tda-intervals" min="5" max="30" value="15" style="width:100%;accent-color:var(--tda)"
+          oninput="document.getElementById('interval-val').textContent=this.value">
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--faint);margin-top:2px"><span>5</span><span>30</span></div>
+      </div>
+
+      <div style="margin-bottom:20px">
+        <label style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);display:block;margin-bottom:6px">Overlap: <span id="overlap-val">0.45</span></label>
+        <input type="range" id="tda-overlap" min="0.1" max="0.9" step="0.05" value="0.45" style="width:100%;accent-color:var(--tda)"
+          oninput="document.getElementById('overlap-val').textContent=(+this.value).toFixed(2)">
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--faint);margin-top:2px"><span>0.1</span><span>0.9</span></div>
+      </div>
+
+      <button onclick="runTDA()" style="width:100%;background:var(--tda);border:none;color:#100C1A;font-weight:700;border-radius:3px;padding:11px;font-size:13px;font-family:inherit;cursor:pointer;letter-spacing:.04em">▶ RUN TDA</button>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:20px">
+        <div style="background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:10px;text-align:center">
+          <div id="tda-betti0" style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:700;color:var(--tda)">–</div>
+          <div style="font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em;margin-top:3px">β₀</div>
+        </div>
+        <div style="background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:10px;text-align:center">
+          <div id="tda-betti1" style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:700;color:var(--tda)">–</div>
+          <div style="font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em;margin-top:3px">β₁ LOOPS</div>
+        </div>
+        <div style="background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:10px;text-align:center">
+          <div id="tda-pers" style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:700;color:var(--tda)">–</div>
+          <div style="font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em;margin-top:3px">MAX PERS</div>
+        </div>
+      </div>
+
+      <!-- H1 loops list -->
+      <div style="margin-top:16px">
+        <div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-bottom:8px">H₁ PERSISTENCE LOOPS</div>
+        <div id="tda-h1-list" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mute);line-height:1.8"></div>
+      </div>
     </div>
-    <div class="tda-group">
-      <label>Overlap: <span id="overlap-val">0.5</span></label>
-      <input type="range" id="tda-overlap" min="0.1" max="0.9" step="0.05" value="0.5" oninput="document.getElementById('overlap-val').textContent=(+this.value).toFixed(2)">
-    </div>
-    <div class="tda-group">
-      <label>TDA Features</label>
-      <div class="tda-check-grid" id="feature-checks"></div>
-    </div>
-    <div>
-      <button class="tda-run-btn" onclick="runTDA()">▶ Run TDA</button>
-    </div>
-    <div class="tda-metrics">
-      <div class="tda-m"><div class="n" id="tda-betti0">–</div><div class="l">β₀</div></div>
-      <div class="tda-m"><div class="n" id="tda-betti1">–</div><div class="l">β₁ LOOPS</div></div>
-      <div class="tda-m"><div class="n" id="tda-pers">–</div><div class="l">MAX PERS</div></div>
+
+    <!-- Right: Topology Graph -->
+    <div style="padding:16px;display:flex;flex-direction:column;gap:10px;min-height:0">
+      <div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint)">TOPOLOGY GRAPH (MAPPER)</div>
+      <svg id="tda-explorer-graph" style="flex:1;background:var(--panel);border-radius:4px;min-height:200px"></svg>
+      <div style="font-size:10px;color:var(--faint);font-family:'IBM Plex Mono',monospace;line-height:1.6">
+        Each dot = one mapper node &nbsp;•&nbsp; X = time (jittered) &nbsp;•&nbsp; Color = anomaly state<br>
+        Edges = topological adjacency &nbsp;•&nbsp; Click node for details
+      </div>
     </div>
   </div>
 </div>
+
 
 <!-- ── Chat overlay ───────────────────────────────────────────────────────── -->
 <div id="chat-overlay">

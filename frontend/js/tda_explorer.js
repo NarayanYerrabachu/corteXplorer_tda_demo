@@ -12,10 +12,13 @@ function buildFeatureChecks(cols) {
 }
 
 async function runTDA() {
-  const lens        = document.getElementById('tda-lens')?.value       || 'pca';
-  const n_intervals = parseInt(document.getElementById('tda-intervals')?.value || '10');
-  const overlap     = parseFloat(document.getElementById('tda-overlap')?.value  || '0.5');
-  const features    = [...document.querySelectorAll('#feature-checks input:checked')].map(i => i.value);
+  const lens        = document.getElementById('tda-lens')?.value        || 'pca';
+  const n_intervals = parseInt(document.getElementById('tda-intervals')?.value  || '15');
+  const overlap     = parseFloat(document.getElementById('tda-overlap')?.value   || '0.45');
+  // Support both old feature-checks (overlay) and new tda-feat-list (full view)
+  const checkedOld  = [...document.querySelectorAll('#feature-checks input:checked')].map(i => i.value);
+  const checkedNew  = [...document.querySelectorAll('#tda-feat-list input:checked')].map(i => i.value);
+  const features    = checkedNew.length ? checkedNew : checkedOld;
 
   if (typeof toast === 'function') toast('Running TDA pipeline…');
 
