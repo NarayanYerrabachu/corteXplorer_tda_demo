@@ -3,9 +3,20 @@
 async function renderGraph() {
   try {
     const data = await fetch(`${API}/api/tda/graph`).then(r => r.json());
-    const nodes = (data.nodes || []).slice(0, 30);
-    const edges = (data.edges || []).slice(0, 40);
-    drawForceGraph(nodes, edges);
+    const nodes = (data.nodes || []).slice(0, 35);
+
+    // API returns edges as {a, b, w} — normalise to {source, target, w} for D3
+    const edges = (data.edges || []).slice(0, 50).map(e => ({
+      source: e.a || e.source,
+      target: e.b || e.target,
+      w:      e.w || 1,
+    }));
+
+    // Only keep edges whose source+target both exist as node IDs
+    const nodeIds = new Set(nodes.map(n => n.id));
+    const validEdges = edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
+
+    drawForceGraph(nodes, validEdges);
   } catch (e) {
     const svg = document.getElementById('graph-svg');
     if (svg) svg.innerHTML = '<text x="50%" y="50%" fill="#878e9c" font-size="13" text-anchor="middle" dominant-baseline="middle">Graph unavailable — check API</text>';
@@ -16,8 +27,12 @@ function drawForceGraph(nodes, edges) {
   if (typeof d3 === 'undefined') return;
   const svgEl  = document.getElementById('graph-svg');
   if (!svgEl) return;
-  const W      = svgEl.clientWidth  || 400;
-  const H      = svgEl.clientHeight || 300;
+  // Use getBoundingClientRect for accurate size after layout; fallback to panel defaults
+  const rect   = svgEl.getBoundingClientRect();
+  const W      = rect.width  || svgEl.clientWidth  || 420;
+  const H      = rect.height || svgEl.clientHeight || 310;
+  if (!svgEl.getAttribute('width'))  svgEl.setAttribute('width',  W);
+  if (!svgEl.getAttribute('height')) svgEl.setAttribute('height', H);
   const svg    = d3.select('#graph-svg');
   svg.selectAll('*').remove();
 
