@@ -1,27 +1,6 @@
-// ── Layer helpers ─────────────────────────────────────────────────────────────
-// Bipartite renders into #graph-html-layer; D3 graphs render into #graph-svg.
-// We never hide either layer — just clear the one not in use so it takes no space.
-
-function _clearHtmlLayer() {
-  const el = document.getElementById('graph-html-layer');
-  if (el) { el.innerHTML = ''; el.style.minHeight = '0'; el.style.flex = '0'; }
-}
-
-function _useHtmlLayer() {
-  const el = document.getElementById('graph-html-layer');
-  if (el) { el.style.flex = '1'; el.style.minHeight = '260px'; }
-  // Clear SVG content but keep it in DOM
-  const svg = document.getElementById('graph-svg');
-  if (svg) { d3.select(svg).selectAll('*').remove(); svg.style.flex = '0'; svg.style.minHeight = '0'; }
-  return el;
-}
-
-function _useSvgLayer() {
-  const el = document.getElementById('graph-html-layer');
-  if (el) { el.innerHTML = ''; el.style.flex = '0'; el.style.minHeight = '0'; }
-  const svg = document.getElementById('graph-svg');
-  if (svg) { svg.style.flex = '1'; svg.style.minHeight = '300px'; }
-}
+// All graphs render directly into #graph-svg — no HTML layer switching needed.
+// CSS arc-flow animations apply to SVG elements created via D3 because the
+// @keyframes arcpulse rule is injected into <head> and matches by class name.
 
 // ── Context-sensitive graph panel ────────────────────────────────────────────
 // Renders different graph types based on the active lens:
@@ -51,20 +30,14 @@ async function renderGraphForLens(lensName) {
     // Abort if a newer lens request arrived while we were fetching
     if (_wantedLens !== lensName) return;
 
-    // Relationships → HTML layer; all others → D3 SVG layer
-    if (lensName === 'relationships') {
-      _useHtmlLayer();
-      drawBipartiteGraph(_findingsData.relationships || []);
-    } else {
-      _useSvgLayer();
-      switch (lensName) {
-        case 'topology':  drawTopologyScatter(_graphData, _findingsData); break;
-        case 'suspicious':drawSuspiciousChart(_findingsData.suspicious || []); break;
-        case 'anomalies': drawAnomalyScatter(_findingsData.anomalies || []); break;
-        case 'clusters':  drawClusterChart(_findingsData.themes || []); break;
-        case 'drift':     drawDriftChart(_findingsData.drift || []); break;
-        default:          drawTopologyScatter(_graphData, _findingsData);
-      }
+    switch (lensName) {
+      case 'topology':      drawTopologyScatter(_graphData, _findingsData); break;
+      case 'relationships': drawBipartiteGraph(_findingsData.relationships || []); break;
+      case 'suspicious':    drawSuspiciousChart(_findingsData.suspicious || []); break;
+      case 'anomalies':     drawAnomalyScatter(_findingsData.anomalies || []); break;
+      case 'clusters':      drawClusterChart(_findingsData.themes || []); break;
+      case 'drift':         drawDriftChart(_findingsData.drift || []); break;
+      default:              drawTopologyScatter(_graphData, _findingsData);
     }
     updateGraphCaption(lensName);
   } catch (e) {
@@ -225,10 +198,8 @@ function drawTopologyScatter(graphData, findingsData) {
 
 function drawBipartiteGraph(relationships) {
   const svgEl = _getSvg(); if (!svgEl) return;
-
-  // Use SVG string approach (like original CorteXplorer) so arc-flow CSS animations work
-  const container = svgEl.parentElement || svgEl;
-  const cW = Math.max(container.clientWidth || 500, 400);
+  const { W, H } = _dims(svgEl);
+  const cW = W;
   const top25    = relationships.slice(0, 25);
   const leftSet  = [...new Set(top25.map(r => r.extra?.a || ''))].filter(Boolean);
   const rightSet = [...new Set(top25.map(r => r.extra?.b || ''))].filter(Boolean);
@@ -329,11 +300,34 @@ function drawBipartiteGraph(relationships) {
     <span style="color:var(--relate)">●</span> clean
   </div>`;
 
-  const layer = document.getElementById('graph-html-layer');
-  if (!layer) return;
-  layer.innerHTML = `<div style="width:100%;padding:4px 0">${svgStr}${legend}</div>`;
+  // Render directly into #graph-svg by replacing its inner SVG content
+  // The outer #graph-svg element stays in the DOM so flex layout is preserved.
+  // We inject the bipartite SVG as a nested <svg> inside it.
+  const outer = d3.select(svgEl);
+  outer.selectAll('*').remove();
+  outer.attr('width', SVG_W).attr('height', SVG_H + 24);
 
-  const wrap = layer;
+  // Inject the arc SVG string as innerHTML of a foreignObject
+  // — but simpler: just parse and append the SVG nodes via D3
+  const parser = new DOMParser();
+  const doc    = parser.parseFromString(`<svg xmlns="http://www.w3.org/2000/svg">${svgStr}</svg>`, 'image/svg+xml');
+  const inner  = doc.documentElement;
+  Array.from(inner.childNodes).forEach(node => {
+    svgEl.appendChild(node.cloneNode(true));
+  });
+
+  // Append legend as foreignObject
+  const fo = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+  fo.setAttribute('x', 0); fo.setAttribute('y', SVG_H);
+  fo.setAttribute('width', SVG_W); fo.setAttribute('height', 24);
+  fo.innerHTML = `<div xmlns="http://www.w3.org/1999/xhtml" style="font-size:11px;color:#878E9C;font-family:'IBM Plex Mono',monospace;padding:2px 4px">
+    ${top25.length} connections · arc width = co-occurrence ·
+    <span style="color:#E05252">●</span> suspicious &nbsp;
+    <span style="color:#E0A33E">●</span> anomaly &nbsp;
+    <span style="color:#5E9CA6">●</span> clean</div>`;
+  svgEl.appendChild(fo);
+
+  const wrap = svgEl;
   if (!wrap) return;
   const tip = _tooltip();
 
