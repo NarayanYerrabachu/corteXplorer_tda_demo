@@ -35,14 +35,13 @@ async function runTDA() {
     setEl('tda-pers',   (tda.max_persistence || 0).toFixed(4));
     setEl('stat-loops', tda.betti_1 ?? 0);
 
-    // Refresh findings from new pipeline state
+    // Refresh findings, graph data, and redraw
     const fresh = await fetch(`${API}/api/findings`).then(r => r.json());
-    if (typeof _findings !== 'undefined') {
-      Object.assign(_findings, fresh);
-    }
-    if (typeof renderFindings === 'function') renderFindings(_currentLens || 'anomalies');
-    if (typeof renderGraph    === 'function') renderGraph();
-    if (typeof toast          === 'function') toast('TDA complete ✓');
+    if (typeof _findings     !== 'undefined') Object.assign(_findings, fresh);
+    if (typeof _graphData    !== 'undefined') { _graphData = null; _findingsData = null; }
+    if (typeof renderFindings       === 'function') renderFindings(_currentLens || 'anomalies');
+    if (typeof drawTDAExplorerGraph === 'function') drawTDAExplorerGraph();
+    if (typeof toast                === 'function') toast('TDA complete ✓');
   } catch (e) {
     if (typeof toast === 'function') toast('TDA run failed: ' + e.message);
   }

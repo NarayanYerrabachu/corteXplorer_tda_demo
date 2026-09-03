@@ -550,13 +550,27 @@ def build_suspicious_findings(
         country = row.get("Recipient_Country", "")
         sector  = row.get("DAC_Mapping", "")
 
+        ovr_val = float(ovr) if isinstance(ovr, float) and not np.isnan(ovr) else None
+        cpi_val = float(cpi) if isinstance(cpi, float) and not np.isnan(cpi) else None
+        suc_val = int(suc)   if isinstance(suc, (int, float)) and not np.isnan(float(suc)) else None
+
         suspicious.append({
             "kind":    "suspicious",
             "title":   f"{pid} — {country}, {sector}",
             "score":   round(score, 4),
             "sources": [pid],
             "detail":  "; ".join(reasons),
-            "extra":   {"reasons": reasons},
+            "extra":   {
+                "reasons":          reasons,
+                "country":          str(country),
+                "dac_sector":       str(sector),
+                "cost_overrun_pct": ovr_val,
+                "cpi_score":        cpi_val,
+                "success":          suc_val,
+                "iso_score":        round(score, 4),
+                "topo_score":       0.0,
+                "priority":         "HIGH" if score >= 0.6 else "MEDIUM",
+            },
         })
 
     suspicious.sort(key=lambda x: x["score"], reverse=True)

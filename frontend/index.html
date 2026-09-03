@@ -356,7 +356,7 @@ nav{
 
 <!-- ── TDA Explorer view (full area, shown instead of .work) ─────────────── -->
 <div id="view-tda-explorer" style="display:none;flex:1;min-height:0;background:var(--ink)">
-  <div style="display:grid;grid-template-columns:220px 1fr 1.4fr;height:100%;min-height:0">
+  <div style="display:grid;grid-template-columns:190px 270px 1fr;height:100%;min-height:0">
 
     <!-- Left: Feature Selection -->
     <div style="border-right:1px solid var(--line);padding:16px 12px;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
@@ -421,7 +421,7 @@ nav{
     <!-- Right: Topology Graph -->
     <div style="padding:16px;display:flex;flex-direction:column;gap:10px;min-height:0">
       <div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint)">TOPOLOGY GRAPH (MAPPER)</div>
-      <svg id="tda-explorer-graph" style="flex:1;background:var(--panel);border-radius:4px;min-height:200px"></svg>
+      <svg id="tda-explorer-graph" style="width:100%;flex:1;min-height:320px;background:var(--panel);border-radius:4px;display:block"></svg>
       <div style="font-size:10px;color:var(--faint);font-family:'IBM Plex Mono',monospace;line-height:1.6">
         Each dot = one mapper node &nbsp;•&nbsp; X = time (jittered) &nbsp;•&nbsp; Color = anomaly state<br>
         Edges = topological adjacency &nbsp;•&nbsp; Click node for details

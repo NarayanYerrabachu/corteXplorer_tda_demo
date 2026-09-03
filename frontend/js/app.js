@@ -214,39 +214,45 @@ function buildTDAFeatureList() {
 async function drawTDAExplorerGraph() {
   const svgEl = document.getElementById('tda-explorer-graph');
   if (!svgEl || typeof d3 === 'undefined') return;
+
+  // Give the DOM a tick to lay out so getBoundingClientRect returns real dimensions
+  await new Promise(r => requestAnimationFrame(r));
+
   try {
     const [graphData, findingsData] = await Promise.all([
       fetch(`${API}/api/tda/graph`).then(r => r.json()),
       fetch(`${API}/api/findings`).then(r => r.json()),
     ]);
-    const scoreMap = {};
-    (findingsData.anomalies || []).forEach(a =>
-      (a.sources||[]).forEach(s => { scoreMap[s] = a.score||0; })
-    );
-    // Use the tda-explorer-graph SVG (different from main graph-svg)
-    const origSvg = document.getElementById('graph-svg');
-    // Temporarily swap so drawTopologyScatter uses the explorer SVG
-    if (origSvg) origSvg.id = '_graph-svg-hidden';
-    svgEl.id = 'graph-svg';
-    drawTopologyScatter(graphData, findingsData);
-    svgEl.id = 'tda-explorer-graph';
-    if (origSvg) origSvg.id = 'graph-svg';
 
-    // Populate H1 list
+    // Draw directly into #tda-explorer-graph by temporarily aliasing the ID
+    const mainSvg = document.getElementById('graph-svg');
+    if (mainSvg) mainSvg.setAttribute('data-real-id', 'graph-svg');
+    if (mainSvg) mainSvg.id = '__graph_hidden__';
+    svgEl.id = 'graph-svg';
+
+    drawTopologyScatter(graphData, findingsData);
+
+    // Restore IDs
+    svgEl.id = 'tda-explorer-graph';
+    if (mainSvg) mainSvg.id = 'graph-svg';
+
+    // Populate H₁ loop list
     const h1list = document.getElementById('tda-h1-list');
-    const h1 = findingsData.meta?.tda?.h1_features || [];
+    const h1     = findingsData.meta?.tda?.h1_features || [];
     if (h1list) {
-      h1list.innerHTML = h1.slice(0,5).map((lp, i) =>
-        `<div>Loop ${i+1}: pers <b style="color:var(--tda)">${(lp.persistence||0).toFixed(4)}</b>
-         &nbsp; birth ${(lp.birth||0).toFixed(3)} → death ${(lp.death||0).toFixed(3)}</div>`
+      h1list.innerHTML = h1.slice(0, 5).map((lp, i) =>
+        `<div style="padding:3px 0;border-bottom:1px solid var(--line)">
+           Loop ${i+1}: pers <b style="color:var(--tda)">${(lp.persistence||0).toFixed(4)}</b>
+           &nbsp;birth ${(lp.birth||0).toFixed(3)} → death ${(lp.death||0).toFixed(3)}
+         </div>`
       ).join('') || '<div style="color:var(--faint)">No H₁ loops detected</div>';
     }
   } catch(e) {
-    const svgD = d3.select('#tda-explorer-graph');
-    svgD.selectAll('*').remove();
-    svgD.append('text').attr('x','50%').attr('y','50%')
-      .attr('fill','#878e9c').attr('font-size',12).attr('text-anchor','middle')
-      .attr('dominant-baseline','middle').text('Graph unavailable');
+    d3.select('#tda-explorer-graph').selectAll('*').remove();
+    d3.select('#tda-explorer-graph').append('text')
+      .attr('x','50%').attr('y','50%').attr('fill','#878e9c').attr('font-size',12)
+      .attr('text-anchor','middle').attr('dominant-baseline','middle')
+      .text('Graph unavailable — ' + e.message);
   }
 }
 
