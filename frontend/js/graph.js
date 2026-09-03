@@ -329,37 +329,54 @@ function drawBipartiteGraph(relationships) {
   }
   if (!wrap) return;
   const tip = _tooltip();
+  const edgeDataForDelegation = top25.map(r => ({ rel:r, a:r.extra?.a, b:r.extra?.b, w:1 }));
 
-  // Edge click / hover
-  wrap.querySelectorAll('.arc-hit, .arc-path').forEach(el => {
-    el.addEventListener('mouseover', (ev) => {
-      const a = el.getAttribute('data-ea'), b = el.getAttribute('data-eb');
-      const rel = top25.find(r => r.extra?.a === a && r.extra?.b === b);
-      if (rel) {
-        tip.style('display','block')
-          .style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px')
-          .html(`<b>${esc(a)}</b> ↔ <b>${esc(b)}</b><br>co-occurrences: <b>${rel.extra?.weight}</b>`);
-      }
-    });
-    el.addEventListener('mousemove', (ev) => {
-      tip.style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px');
-    });
-    el.addEventListener('mouseout', () => tip.style('display','none'));
-    el.addEventListener('click', () => {
-      const a = el.getAttribute('data-ea'), b = el.getAttribute('data-eb');
+  // ── Event delegation on the SVG element ──────────────────────────────────
+  // Handles clicks/hovers on DOMParser-cloned elements (querySelectorAll
+  // event listeners don't reliably fire on cloneNode elements in all browsers)
+
+  wrap.addEventListener('click', function(ev) {
+    // Node click → Audit Trail
+    const gnode = ev.target.closest('[data-actor]');
+    if (gnode) {
+      const name   = gnode.getAttribute('data-actor');
+      const isLeft = !!leftPos[name];
+      showNodeAudit(name, isLeft ? 'country' : 'sector', edgeDataForDelegation);
+      return;
+    }
+    // Arc click → Relationship Audit
+    const arc = ev.target.closest('[data-ea]');
+    if (arc) {
+      const a   = arc.getAttribute('data-ea');
+      const b   = arc.getAttribute('data-eb');
       const rel = top25.find(r => r.extra?.a === a && r.extra?.b === b);
       if (rel) showRelationshipAudit(a, b, rel);
-    });
+    }
   });
 
-  // Node click
-  wrap.querySelectorAll('.gnode').forEach(el => {
-    const name = el.getAttribute('data-actor');
-    el.addEventListener('click', () => {
-      const isLeft = !!leftPos[name];
-      const edgeData = top25.map(r => ({ rel:r, a:r.extra?.a, b:r.extra?.b, w:1 }));
-      showNodeAudit(name, isLeft ? 'country' : 'sector', edgeData);
-    });
+  wrap.addEventListener('mouseover', function(ev) {
+    const arc = ev.target.closest('[data-ea]');
+    if (!arc) { tip.style('display','none'); return; }
+    const a   = arc.getAttribute('data-ea');
+    const b   = arc.getAttribute('data-eb');
+    const rel = top25.find(r => r.extra?.a === a && r.extra?.b === b);
+    if (rel) {
+      tip.style('display','block')
+        .style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px')
+        .html(`<b>${esc(a)}</b> ↔ <b>${esc(b)}</b><br>co-occurrences: <b>${rel.extra?.weight}</b>`);
+    }
+  });
+
+  wrap.addEventListener('mousemove', function(ev) {
+    if (ev.target.closest('[data-ea]')) {
+      tip.style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px');
+    }
+  });
+
+  wrap.addEventListener('mouseout', function(ev) {
+    if (!ev.relatedTarget || !wrap.contains(ev.relatedTarget)) {
+      tip.style('display','none');
+    }
   });
 }
 
