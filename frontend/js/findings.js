@@ -126,8 +126,30 @@ function selectFinding(f, el) {
   document.querySelectorAll('.find').forEach(c => c.setAttribute('aria-selected', 'false'));
   el.setAttribute('aria-selected', 'true');
   _selectedFinding = f;
+
   const btn = document.getElementById('btn-sum-selected');
   if (btn) btn.disabled = false;
+
+  // Auto-update Audit Trail tab when a record card is clicked
+  const pid = (f.sources || [])[0];
+  if (pid && typeof loadAudit === 'function') {
+    loadAudit(pid);          // loads the audit trail
+  } else if (typeof switchRTab === 'function') {
+    // For findings without a source (topology/drift), show a summary
+    const body = document.getElementById('audit-content');
+    if (body) {
+      body.innerHTML = `
+        <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px">${esc(f.title||'').slice(0,60)}</div>
+        <div class="audit-step"><span class="step-icon">📊</span>
+          <div class="step-body"><div class="label">Score</div>
+          <div class="val">${(f.score||0).toFixed(4)}</div></div></div>
+        <div class="audit-step"><span class="step-icon">ℹ️</span>
+          <div class="step-body"><div class="label">Detail</div>
+          <div class="val">${esc(f.detail||'')}</div></div></div>
+        <div class="audit-verified">✓ TRACEABLE</div>`;
+      switchRTab('audit');
+    }
+  }
 }
 
 function renderFindingsRaw(items, title) {
