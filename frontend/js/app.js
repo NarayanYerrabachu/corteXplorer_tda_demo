@@ -192,9 +192,12 @@ function showView(name) {
   } else if (name === 'gov-aid-report') {
     const el = document.getElementById('view-gov-aid-report');
     if (el) el.style.display = 'flex';
-    // Lazy-load the iframe only on first open
+    // Load iframe on first open (use data-loaded flag — empty src returns base URL not '')
     const iframe = document.getElementById('gov-aid-iframe');
-    if (iframe && !iframe.src) iframe.src = '/gov-aid-report';
+    if (iframe && !iframe.getAttribute('data-loaded')) {
+      iframe.src = `${API}/gov-aid-report`;
+      iframe.setAttribute('data-loaded', '1');
+    }
 
   } else if (name === 'report') {
     const el = document.getElementById('view-report');
