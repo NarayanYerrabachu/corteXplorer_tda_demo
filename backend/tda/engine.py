@@ -121,7 +121,7 @@ def build_mapper_graph(
             mapper_nodes.append({"members": members, "cluster": 0})
             continue
         pca_sub = PCA(n_components=min(2, X_sub.shape[1])).fit_transform(X_sub)
-        db = DBSCAN(eps=0.8, min_samples=2).fit(pca_sub)
+        db = DBSCAN(eps=1.2, min_samples=1).fit(pca_sub)
         lbs = db.labels_
         for cid in sorted(set(lbs)):
             mask  = lbs == cid
@@ -625,7 +625,8 @@ def run_full_pipeline(
     drift = compute_drift(df, X_norm, cluster_labels)
 
     # ── Mapper graph ──────────────────────────────────────────────────────────
-    mapper = build_mapper_graph(X_norm, lens_vals, n_intervals, overlap,
+    mapper = build_mapper_graph(X_norm, lens_vals,
+                                max(n_intervals, 15), max(overlap, 0.4),
                                 cluster_labels, record_ids)
 
     # ── Topology findings (H1 loops) ──────────────────────────────────────────
