@@ -236,11 +236,38 @@ def detect_anomalies(
         title = pid + (" — " + ", ".join(parts) if parts else "")
 
         extra_nums = {}
-        for c in feature_cols[:6]:
-            if c in df.columns:
-                v = df.iloc[i].get(c)
-                if v is not None and not (isinstance(v, float) and np.isnan(float(v))):
-                    extra_nums[c] = round(float(v), 4)
+        row_i = df.iloc[i]
+
+        # Always include display fields regardless of TDA feature list
+        _display_cols = [
+            "Recipient_Country", "DAC_Mapping",
+            "Cost_Overran_in %", "Project_Success",
+            "CPI_Score", "Evaluation_Lag_Days",
+            "Initial_Budget_USD", "Approva_Date_Year",
+        ]
+        for c in _display_cols + feature_cols[:6]:
+            if c not in df.columns:
+                continue
+            v = row_i.get(c)
+            if v is None:
+                continue
+            if isinstance(v, float) and np.isnan(v):
+                continue
+            try:
+                extra_nums[c] = round(float(v), 4) if isinstance(v, (int, float)) else str(v)
+            except (TypeError, ValueError):
+                extra_nums[c] = str(v)
+
+        # Aliases expected by the dashboard frontend
+        extra_nums["country"]          = str(row_i.get("Recipient_Country", ""))
+        extra_nums["dac_sector"]       = str(row_i.get("DAC_Mapping", ""))
+        extra_nums["cost_overrun_pct"] = extra_nums.get("Cost_Overran_in %")
+        extra_nums["success"]          = int(row_i.get("Project_Success", 0)) if row_i.get("Project_Success") is not None else None
+        extra_nums["cpi_score"]        = extra_nums.get("CPI_Score")
+        extra_nums["eval_lag"]         = extra_nums.get("Evaluation_Lag_Days")
+        # Priority classification
+        score_v = float(combined[i]) if i < len(combined) else 0.0
+        extra_nums["priority"] = "HIGH" if score_v >= 0.6 else "MEDIUM" if score_v >= 0.4 else "REVIEW"
 
         findings.append({
             "kind":    "anomaly",
