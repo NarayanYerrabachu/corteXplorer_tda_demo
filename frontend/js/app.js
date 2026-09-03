@@ -31,9 +31,9 @@ async function init() {
     // Feature checkboxes in TDA Explorer
     buildFeatureChecks(_featureCols);
 
-    // Render initial findings (anomalies) + graph
+    // Render initial findings (anomalies) + matching graph
     renderFindings('anomalies');
-    renderGraph();
+    if (typeof renderGraphForLens === 'function') renderGraphForLens('anomalies');
 
     // Init chat overlay
     initChatOverlay();

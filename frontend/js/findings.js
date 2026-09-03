@@ -10,6 +10,8 @@ function setLens(name) {
   const el = document.getElementById(`lens-${name}`);
   if (el) el.setAttribute('aria-selected', 'true');
   renderFindings(name);
+  // Update graph to match the active lens
+  if (typeof renderGraphForLens === 'function') renderGraphForLens(name);
 }
 
 function getLensData(name) {

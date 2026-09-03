@@ -134,6 +134,13 @@ def index():
 def index_html():
     return RedirectResponse(url="/", status_code=301)
 
+@app.get("/gov-aid-report", response_class=HTMLResponse)
+def gov_aid_report():
+    p = _FRONTEND / "gov_aid_report.html"
+    if not p.exists():
+        raise HTTPException(404, "gov_aid_report.html not found")
+    return p.read_text(encoding="utf-8")
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard_page():
     p = _FRONTEND / "dashboard.html"
