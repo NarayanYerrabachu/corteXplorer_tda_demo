@@ -262,44 +262,60 @@ function _drawBubbleScatter(items, dotColor, glowColor, title, xLabel) {
 
   if (!items.length) { _graphError('No data'); return; }
 
-  const root   = svg.append('g').attr('transform',`translate(${margin.left},${margin.top})`);
-  const xScale = d3.scalePoint().domain(items.map((_,i)=>`#${i+1}`)).range([0,innerW]).padding(0.4);
-  const yScale = d3.scaleLinear().domain([0, 1.05]).range([innerH, 0]);
+  const root = svg.append('g').attr('transform',`translate(${margin.left},${margin.top})`);
+
+  // X = cost overrun % (gives real spread); fallback to rank index
+  const overruns = items.map(d => {
+    const v = d.extra?.cost_overrun_pct;
+    return (v != null && !isNaN(v)) ? Math.min(v * 100, 2000) : null;
+  });
+  const hasOverrun = overruns.filter(v => v != null).length > 3;
+
+  // Y axis: zoom in on actual score range for visible differentiation
+  const scores  = items.map(d => d.score || 0);
+  const yMin    = Math.max(0, Math.min(...scores) - 0.05);
+  const yMax    = Math.min(1.02, Math.max(...scores) + 0.02);
+
+  const xScale  = hasOverrun
+    ? d3.scaleLinear().domain([0, Math.max(...overruns.map(v=>v||0)) * 1.1 || 100]).range([0, innerW])
+    : d3.scalePoint().domain(items.map((_,i)=>`#${i+1}`)).range([0,innerW]).padding(0.4);
+  const yScale  = d3.scaleLinear().domain([yMin, yMax]).range([innerH, 0]);
 
   // Grid lines
-  root.append('g').selectAll('line').data(yScale.ticks(5)).enter().append('line')
+  root.append('g').selectAll('line').data(yScale.ticks(6)).enter().append('line')
     .attr('x1',0).attr('x2',innerW).attr('y1',d=>yScale(d)).attr('y2',d=>yScale(d))
     .attr('stroke','rgba(42,47,58,.7)').attr('stroke-dasharray','3,3');
 
   const tip = _tooltip();
 
-  root.selectAll('circle.glow').data(items).enter().append('circle')
-    .attr('cx',(_,i)=>xScale(`#${i+1}`))
-    .attr('cy',d=>yScale(d.score||0))
-    .attr('r', d => 10 + (d.score||0) * 8)
-    .attr('fill', glowColor)
-    .attr('stroke','none');
+  items.forEach((d, i) => {
+    const cx  = hasOverrun ? xScale(overruns[i] || 0) + (Math.sin(i*3.7)*innerW*0.015)
+                           : xScale(`#${i+1}`);
+    const cy  = yScale(d.score || 0);
+    const r   = 5 + (d.score||0) * 7;
+    const ex  = d.extra || {};
 
-  root.selectAll('circle.dot').data(items).enter().append('circle')
-    .attr('cx',(_,i)=>xScale(`#${i+1}`))
-    .attr('cy',d=>yScale(d.score||0))
-    .attr('r', d => 5 + (d.score||0) * 6)
-    .attr('fill', dotColor)
-    .attr('fill-opacity',.85)
-    .attr('stroke','rgba(255,255,255,.15)')
-    .attr('stroke-width',1)
-    .style('cursor','pointer')
-    .on('mouseover',(ev,d)=>{
-      const ex = d.extra||{};
-      const ovr = ex.cost_overrun_pct != null ? ` · overrun ${(ex.cost_overrun_pct*100).toFixed(1)}%` : '';
-      tip.style('display','block').style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px')
-        .html(`<b>${esc((d.title||'').slice(0,45))}</b><br>score: <b>${(d.score||0).toFixed(3)}</b>${ovr}<br>${esc((d.detail||'').slice(0,60))}`);
-    })
-    .on('mousemove',(ev)=>tip.style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px'))
-    .on('mouseout',()=>tip.style('display','none'))
-    .on('click',(ev,d)=>{ const pid=(d.sources||[])[0]; if(pid) loadAudit(pid); });
+    // Glow
+    root.append('circle').attr('cx',cx).attr('cy',cy).attr('r',r+5)
+      .attr('fill',glowColor).attr('stroke','none');
+    // Dot
+    root.append('circle').attr('cx',cx).attr('cy',cy).attr('r',r)
+      .attr('fill',dotColor).attr('fill-opacity',.85)
+      .attr('stroke','rgba(255,255,255,.2)').attr('stroke-width',1)
+      .style('cursor','pointer')
+      .on('mouseover',(ev)=>{
+        const ovr = ex.cost_overrun_pct != null ? `overrun ${(ex.cost_overrun_pct*100).toFixed(1)}%` : '';
+        const iso = ex.iso_score != null ? `iso ${(ex.iso_score).toFixed(3)}` : '';
+        tip.style('display','block').style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px')
+          .html(`<b>${esc((d.title||'').slice(0,45))}</b><br>score: <b>${(d.score||0).toFixed(4)}</b><br>${[ovr,iso].filter(Boolean).join(' · ')}`);
+      })
+      .on('mousemove',(ev)=>tip.style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px'))
+      .on('mouseout',()=>tip.style('display','none'))
+      .on('click',()=>{ const pid=(d.sources||[])[0]; if(pid) loadAudit(pid); });
+  });
 
-  _axes(root, xScale, yScale, innerH, innerW, xLabel, 'anomaly score');
+  const xLabelText = hasOverrun ? 'cost overrun %' : xLabel;
+  _axes(root, xScale, yScale, innerH, innerW, xLabelText, 'anomaly score');
 }
 
 
