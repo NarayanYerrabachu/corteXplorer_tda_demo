@@ -55,11 +55,27 @@ function renderFindings(lens) {
   });
 }
 
+// Distinct color per finding kind
+const KIND_COLOR = {
+  anomaly:      'var(--signal)',    // amber  #E0A33E
+  suspicious:   'var(--danger)',    // red    #E05252
+  topology:     'var(--tda)',       // purple #9B7FD4
+  drift:        'var(--drift)',     // blue   #4EA8DE
+  relationship: 'var(--relate)',    // teal   #5E9CA6
+  theme:        'var(--theme)',     // grey   #A9B4C4
+};
+
 function buildCard(f, i) {
-  const kind  = f.kind  || 'anomaly';
-  const score = f.score || 0;
-  const pct   = Math.min(100, Math.round(score * 100));
-  let chips   = '';
+  const kind       = f.kind  || 'anomaly';
+  const score      = f.score || 0;
+  const pct        = Math.min(100, Math.round(score * 100));
+  const titleColor = KIND_COLOR[kind] || 'var(--text)';
+  const barColor   = kind === 'suspicious' ? 'var(--danger)'
+                   : kind === 'topology'   ? 'var(--tda)'
+                   : kind === 'drift'      ? 'var(--drift)'
+                   : kind === 'relationship' ? 'var(--relate)'
+                   : 'var(--signal)';
+  let chips = '';
 
   if (kind === 'anomaly' || kind === 'suspicious') {
     const ex    = f.extra || {};
@@ -91,12 +107,13 @@ function buildCard(f, i) {
   const traceBtn = srcCount > 0 ? `<button class="trace-btn">${srcCount} source · click to trace</button>` : '';
 
   return `
-  <div class="find k-${kind}" aria-selected="false" data-idx="${i}">
+  <div class="find k-${kind}" aria-selected="false" data-idx="${i}"
+       style="border-left-color:${titleColor}40">
     <div class="ft">
-      <span class="title">${esc(f.title || '')}</span>
+      <span class="title" style="color:${titleColor}">${esc(f.title || '')}</span>
       <div class="sev">
-        <div class="bar"><i style="width:${pct}%"></i></div>
-        <span class="v">${score.toFixed(3)}</span>
+        <div class="bar"><i style="width:${pct}%;background:${barColor}"></i></div>
+        <span class="v" style="color:${barColor}">${score.toFixed(3)}</span>
       </div>
     </div>
     <div class="meta">${esc((f.detail || '').slice(0, 130))}</div>

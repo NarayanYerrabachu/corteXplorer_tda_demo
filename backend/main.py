@@ -223,6 +223,14 @@ tr:hover td{{background:#20242D;color:#D9DCE3}}
 </style>
 </head>
 <body>
+<!-- Back navigation -->
+<div style="display:flex;align-items:center;gap:12px;padding:10px 0 20px;border-bottom:1px solid #2A2F3A;margin-bottom:24px">
+  <a href="/" style="font-size:11px;color:#9B7FD4;text-decoration:none;border:1px solid rgba(155,127,212,.4);border-radius:3px;padding:5px 12px;font-family:'IBM Plex Mono',monospace;letter-spacing:.06em">← Analysis</a>
+  <a href="/dashboard" style="font-size:11px;color:#878E9C;text-decoration:none;border:1px solid #2A2F3A;border-radius:3px;padding:5px 12px;font-family:'IBM Plex Mono',monospace">Dashboard</a>
+  <a href="/chat" style="font-size:11px;color:#878E9C;text-decoration:none;border:1px solid #2A2F3A;border-radius:3px;padding:5px 12px;font-family:'IBM Plex Mono',monospace">Chat</a>
+  <a href="/gov-aid-report" style="font-size:11px;color:#878E9C;text-decoration:none;border:1px solid #2A2F3A;border-radius:3px;padding:5px 12px;font-family:'IBM Plex Mono',monospace">Gov Aid Report</a>
+  <button onclick="window.print()" style="margin-left:auto;background:none;border:1px solid #2A2F3A;color:#878E9C;border-radius:3px;padding:5px 12px;font-size:11px;font-family:'IBM Plex Mono',monospace;cursor:pointer">⎙ Print / Save PDF</button>
+</div>
 <h1>CorteXplorer TDA — Government Aid Pattern Intelligence Report</h1>
 <div class="subtitle">Topological Data Analysis · Anomaly Detection · Audit Intelligence</div>
 
@@ -305,6 +313,23 @@ tr:hover td{{background:#20242D;color:#D9DCE3}}
     <div class="traceable">✓ 100% TRACEABLE · 0 HALLUCINATIONS</div>
   </div>
 </div>
+<script>
+// If AI report was requested, inject AI section from sessionStorage
+(function(){{
+  const ai = sessionStorage.getItem('cortex_ai_section');
+  const note = sessionStorage.getItem('cortex_ai_note');
+  if (ai && new URLSearchParams(location.search).get('ai')) {{
+    const div = document.createElement('div');
+    div.style.cssText = 'background:#1A1D24;border:1px solid #9B7FD4;border-radius:4px;padding:20px;margin-bottom:32px';
+    div.innerHTML = '<div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:#9B7FD4;margin-bottom:12px;font-family:IBM Plex Mono,monospace">AI INSIGHTS — INTERPRETATION ONLY · NOT RAW FACTS</div>'
+      + '<div style="font-size:13px;line-height:1.7;color:#D9DCE3">' + ai.replace(/\\n/g,'<br>') + '</div>'
+      + (note ? '<div style="margin-top:10px;font-size:10px;color:#59616E;font-family:monospace">' + note + '</div>' : '');
+    document.querySelector('h1').after(div);
+    sessionStorage.removeItem('cortex_ai_section');
+    sessionStorage.removeItem('cortex_ai_note');
+  }}
+}})();
+</script>
 </body>
 </html>"""
     return HTMLResponse(content=html)

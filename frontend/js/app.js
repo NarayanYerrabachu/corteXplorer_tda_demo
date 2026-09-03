@@ -145,30 +145,21 @@ function initSearch() {
 // ── Report buttons ────────────────────────────────────────────────────────────
 
 function initReportButtons() {
-  // Opens the properly styled HTML report in a new tab
+  // Report → same tab navigation (like Dashboard / Chat)
   const btn = document.getElementById('btn-report');
-  if (btn) btn.onclick = () => window.open(`${API}/report/html`, '_blank');
+  if (btn) btn.onclick = () => { window.location.href = `${API}/report/html`; };
 
   const ai = document.getElementById('btn-ai-report');
   if (ai) ai.onclick = async () => {
     toast('Generating AI report…');
     try {
       const data = await fetch(`${API}/api/report/ai`).then(r => r.json());
-      // Open styled HTML report first, then show AI note
-      const win = window.open(`${API}/report/html`, '_blank');
+      // Navigate to report page; if AI section available, pass via sessionStorage
       if (data.ai_section) {
-        // Append AI section after the HTML report loads
-        setTimeout(() => {
-          try {
-            const div = win.document.createElement('div');
-            div.style.cssText = 'background:#1A1D24;border:1px solid #9B7FD4;border-radius:4px;padding:20px;margin:20px 0;font-size:13px;line-height:1.7;color:#D9DCE3;';
-            div.innerHTML = `<div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:#9B7FD4;margin-bottom:12px;font-family:\'IBM Plex Mono\',monospace">AI INSIGHTS — INTERPRETATION ONLY</div>`
-              + data.ai_section.replace(/\n/g,'<br>')
-              + `<div style="margin-top:10px;font-size:10px;color:#59616E;font-family:\'IBM Plex Mono\',monospace">${data.ai_note||''}</div>`;
-            win.document.body.appendChild(div);
-          } catch(e) {}
-        }, 1200);
+        sessionStorage.setItem('cortex_ai_section', data.ai_section);
+        sessionStorage.setItem('cortex_ai_note',    data.ai_note || '');
       }
+      window.location.href = `${API}/report/html?ai=1`;
     } catch (e) { toast('AI report unavailable'); }
   };
 }
