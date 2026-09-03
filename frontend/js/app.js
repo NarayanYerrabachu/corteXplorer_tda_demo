@@ -187,14 +187,13 @@ function initInterrogateToggle() {
   };
 }
 
-// ── Boot ──────────────────────────────────────────────────────────────────────
+// ── Boot ─────────────────────────────────────────────────────────────────────
+// Scripts sit at bottom of <body> so DOM is already ready — call directly.
 
 let _featureCols = [];
 
-document.addEventListener('DOMContentLoaded', () => {
-  initSearch();
-  initReportButtons();
-  initExplorerToggle();
-  initInterrogateToggle();
-  init();
-});
+initSearch();
+initReportButtons();
+initExplorerToggle();
+initInterrogateToggle();
+init();

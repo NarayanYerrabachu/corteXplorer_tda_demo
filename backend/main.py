@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -118,12 +118,21 @@ def startup():
 # ── Static files + HTML pages ─────────────────────────────────────────────────
 _FRONTEND = Path(__file__).parent.parent / "frontend"
 
+# Serve frontend/js/ at /js/ so index.html can load <script src="js/...">
+_JS_DIR = _FRONTEND / "js"
+if _JS_DIR.exists():
+    app.mount("/js", StaticFiles(directory=str(_JS_DIR)), name="js")
+
 @app.get("/", response_class=HTMLResponse)
 def index():
     p = _FRONTEND / "index.html"
     if not p.exists():
         raise HTTPException(404, "frontend/index.html not found")
     return p.read_text(encoding="utf-8")
+
+@app.get("/index.html", response_class=HTMLResponse)
+def index_html():
+    return RedirectResponse(url="/", status_code=301)
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard_page():
