@@ -206,15 +206,16 @@ function drawBipartiteGraph(relationships) {
   const maxW     = Math.max(1, ...top25.map(r => r.extra?.weight || 1));
 
   const nRows  = Math.max(leftSet.length, rightSet.length, 1);
-  const PAD    = 28;
-  const rowPx  = Math.max(22, Math.min(32, Math.floor((600 - PAD*2) / nRows)));
-  const SVG_H  = nRows * rowPx + PAD * 2;
-  const SVG_W  = Math.max(cW, 480);
+  const TITLE_H = 28;                              // space for title at top
+  const PAD     = 12;
+  const rowPx   = Math.max(22, Math.min(30, Math.floor((Math.max(H - TITLE_H - 40, 300)) / nRows)));
+  const SVG_H   = TITLE_H + nRows * rowPx + PAD;
+  const SVG_W   = Math.max(cW, 480);
   const lx = 155, rx = SVG_W - 140, cx = SVG_W / 2;
 
   const leftPos  = {}, rightPos = {};
-  leftSet.forEach((n, i)  => { leftPos[n]  = { x: lx, y: PAD + rowPx * (i + 0.5) }; });
-  rightSet.forEach((n, i) => { rightPos[n] = { x: rx, y: PAD + rowPx * (i + 0.5) }; });
+  leftSet.forEach((n, i)  => { leftPos[n]  = { x: lx, y: TITLE_H + PAD + rowPx * (i + 0.5) }; });
+  rightSet.forEach((n, i) => { rightPos[n] = { x: rx, y: TITLE_H + PAD + rowPx * (i + 0.5) }; });
 
   // Anomaly/suspicious color coding
   const anomIds = new Set((_findingsData?.anomalies || []).flatMap(a => a.sources || []));
@@ -234,6 +235,11 @@ function drawBipartiteGraph(relationships) {
   };
 
   let svgStr = `<svg class="arcwrap-svg" viewBox="0 0 ${SVG_W} ${SVG_H}" style="width:100%;display:block">`;
+
+  // ── Title ──────────────────────────────────────────────────────────────────
+  svgStr += `<text x="${SVG_W / 2}" y="18" text-anchor="middle"
+    font-size="12" font-weight="600" fill="#D9DCE3"
+    font-family="'Space Grotesk',sans-serif">Relationship Graph — Country ↔ Sector</text>`;
 
   // Draw arcs
   top25.forEach((rel, i) => {
@@ -285,20 +291,13 @@ function drawBipartiteGraph(relationships) {
     </g>`;
   });
 
-  // Column labels
-  svgStr += `<text x="${lx - 10}" y="${SVG_H - 8}" text-anchor="end"
+  // Column labels inside SVG
+  svgStr += `<text x="${lx - 10}" y="${SVG_H - 4}" text-anchor="end"
     font-size="9" fill="var(--faint)" font-family="IBM Plex Mono,monospace">COUNTRIES</text>`;
-  svgStr += `<text x="${rx + 10}" y="${SVG_H - 8}" text-anchor="start"
+  svgStr += `<text x="${rx + 10}" y="${SVG_H - 4}" text-anchor="start"
     font-size="9" fill="var(--faint)" font-family="IBM Plex Mono,monospace">DAC SECTORS</text>`;
 
   svgStr += `</svg>`;
-
-  const legend = `<div style="font-size:11px;color:var(--mute);padding:4px 0 0;font-family:'IBM Plex Mono',monospace">
-    ${top25.length} connections · arc width = co-occurrence weight ·
-    <span style="color:var(--danger)">●</span> suspicious &nbsp;
-    <span style="color:var(--signal)">●</span> anomaly &nbsp;
-    <span style="color:var(--relate)">●</span> clean
-  </div>`;
 
   // Render directly into #graph-svg by replacing its inner SVG content
   // The outer #graph-svg element stays in the DOM so flex layout is preserved.
@@ -316,18 +315,18 @@ function drawBipartiteGraph(relationships) {
     svgEl.appendChild(node.cloneNode(true));
   });
 
-  // Append legend as foreignObject
-  const fo = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
-  fo.setAttribute('x', 0); fo.setAttribute('y', SVG_H);
-  fo.setAttribute('width', SVG_W); fo.setAttribute('height', 24);
-  fo.innerHTML = `<div xmlns="http://www.w3.org/1999/xhtml" style="font-size:11px;color:#878E9C;font-family:'IBM Plex Mono',monospace;padding:2px 4px">
-    ${top25.length} connections · arc width = co-occurrence ·
-    <span style="color:#E05252">●</span> suspicious &nbsp;
-    <span style="color:#E0A33E">●</span> anomaly &nbsp;
-    <span style="color:#5E9CA6">●</span> clean</div>`;
-  svgEl.appendChild(fo);
-
   const wrap = svgEl;
+
+  // Update the caption bar below the graph
+  const cap = document.getElementById('graph-caption');
+  if (cap) {
+    cap.innerHTML = `
+      ${top25.length} connections &nbsp;·&nbsp; arc width = co-occurrence weight &nbsp;·&nbsp;
+      <span style="color:var(--danger)">●</span> suspicious &nbsp;
+      <span style="color:var(--signal)">●</span> anomaly &nbsp;
+      <span style="color:var(--relate)">●</span> clean
+      &nbsp;·&nbsp; Click node or arc to inspect`;
+  }
   if (!wrap) return;
   const tip = _tooltip();
 
