@@ -165,23 +165,180 @@ function drawTopologyScatter(graphData, findingsData) {
 }
 
 
+// ── arc-flow CSS (injected once) ──────────────────────────────────────────────
+(function injectArcCSS(){
+  if (document.getElementById('arc-flow-css')) return;
+  const s = document.createElement('style');
+  s.id = 'arc-flow-css';
+  s.textContent = `
+    .arc-path{fill:none;stroke-linecap:round}
+    @media(prefers-reduced-motion:no-preference){
+      .arc-path.arc-flow{
+        animation:arcpulse var(--pdur,2.2s) ease-in-out infinite var(--delay,0s);
+      }
+    }
+    @keyframes arcpulse{
+      0%  {stroke-opacity:var(--op,.4); filter:brightness(1)}
+      30% {stroke-opacity:1;            filter:brightness(3.5)}
+      55% {stroke-opacity:.85;          filter:brightness(1.6)}
+      100%{stroke-opacity:var(--op,.4); filter:brightness(1)}
+    }
+    .arc-node-label{font-family:'Space Grotesk',sans-serif;dominant-baseline:middle}
+    .gnode:hover .arc-node-dot{r:6;filter:brightness(1.8)}
+    .gnode:hover .arc-node-label{font-weight:700;fill:var(--text)}
+  `;
+  document.head.appendChild(s);
+})();
+
 // ── 2. BIPARTITE RELATIONSHIP GRAPH ──────────────────────────────────────────
 
 function drawBipartiteGraph(relationships) {
   const svgEl = _getSvg(); if (!svgEl) return;
-  const { W, H } = _dims(svgEl);
-  const lx = 8, rx = W - 8, lColW = 140, rColW = 130;
-  const top = 28, bot = 20;
 
+  // Use SVG string approach (like original CorteXplorer) so arc-flow CSS animations work
+  const container = svgEl.parentElement || svgEl;
+  const cW = Math.max(container.clientWidth || 500, 400);
   const top25    = relationships.slice(0, 25);
   const leftSet  = [...new Set(top25.map(r => r.extra?.a || ''))].filter(Boolean);
   const rightSet = [...new Set(top25.map(r => r.extra?.b || ''))].filter(Boolean);
-  const leftY    = d3.scalePoint().domain(leftSet) .range([top, H - bot]).padding(0.3);
-  const rightY   = d3.scalePoint().domain(rightSet).range([top, H - bot]).padding(0.3);
   const maxW     = Math.max(1, ...top25.map(r => r.extra?.weight || 1));
-  const x1 = lx + lColW, x2 = rx - rColW, mid = (x1 + x2) / 2;
 
-  const svg = d3.select(svgEl); svg.selectAll('*').remove();
+  const nRows  = Math.max(leftSet.length, rightSet.length, 1);
+  const PAD    = 28;
+  const rowPx  = Math.max(22, Math.min(32, Math.floor((600 - PAD*2) / nRows)));
+  const SVG_H  = nRows * rowPx + PAD * 2;
+  const SVG_W  = Math.max(cW, 480);
+  const lx = 155, rx = SVG_W - 140, cx = SVG_W / 2;
+
+  const leftPos  = {}, rightPos = {};
+  leftSet.forEach((n, i)  => { leftPos[n]  = { x: lx, y: PAD + rowPx * (i + 0.5) }; });
+  rightSet.forEach((n, i) => { rightPos[n] = { x: rx, y: PAD + rowPx * (i + 0.5) }; });
+
+  // Anomaly/suspicious color coding
+  const anomIds = new Set((_findingsData?.anomalies || []).flatMap(a => a.sources || []));
+  const suspIds = new Set((_findingsData?.suspicious || []).flatMap(s => s.sources || []));
+  const edgeColor = (rel) => {
+    const srcs = rel.sources || [];
+    if (srcs.some(s => suspIds.has(s))) return 'var(--danger)';
+    if (srcs.some(s => anomIds.has(s))) return 'var(--signal)';
+    return 'var(--relate)';
+  };
+  const nodeColor = (name) => {
+    const relForNode = top25.filter(r => r.extra?.a === name || r.extra?.b === name);
+    const srcs = relForNode.flatMap(r => r.sources || []);
+    if (srcs.some(s => suspIds.has(s))) return 'var(--danger)';
+    if (srcs.some(s => anomIds.has(s))) return 'var(--signal)';
+    return 'var(--relate)';
+  };
+
+  let svgStr = `<svg class="arcwrap-svg" viewBox="0 0 ${SVG_W} ${SVG_H}" style="width:100%;display:block">`;
+
+  // Draw arcs
+  top25.forEach((rel, i) => {
+    const a = rel.extra?.a, b = rel.extra?.b;
+    if (!a || !b) return;
+    const lp = leftPos[a], rp = rightPos[b];
+    if (!lp || !rp) return;
+    const w   = (0.5 + 1.8 * ((rel.extra?.weight || 1) / maxW)).toFixed(2);
+    const col = edgeColor(rel);
+    const op  = 0.4;
+    const pdur = (1.6 + 1.8 * ((i % 7) / 7)).toFixed(2);
+    const del  = (-(i % 13) * 0.22).toFixed(2);
+    const d    = `M ${lp.x} ${lp.y} C ${cx} ${lp.y}, ${cx} ${rp.y}, ${rx} ${rp.y}`;
+
+    // Invisible wide hit area
+    svgStr += `<path d="${d}" fill="none" stroke="transparent" stroke-width="14"
+      style="cursor:pointer" data-ea="${esc(a)}" data-eb="${esc(b)}"
+      class="arc-hit" data-idx="${i}"/>`;
+    // Animated visible arc
+    svgStr += `<path class="arc-path arc-flow" d="${d}"
+      stroke="${col}" stroke-width="${w}"
+      style="--pdur:${pdur}s;--delay:${del}s;--op:${op};cursor:pointer"
+      data-ea="${esc(a)}" data-eb="${esc(b)}" data-idx="${i}"/>`;
+  });
+
+  // Left nodes (countries)
+  leftSet.forEach(name => {
+    const p = leftPos[name]; if (!p) return;
+    const col = nodeColor(name);
+    const lbl = name.length > 18 ? name.slice(0, 17) + '…' : name;
+    svgStr += `<g class="gnode" data-actor="${esc(name)}" style="cursor:pointer">
+      <circle class="arc-node-dot" cx="${p.x}" cy="${p.y}" r="4"
+        fill="${col}" fill-opacity="0.9" stroke="${col}" stroke-width="0.5"/>
+      <text class="arc-node-label" x="${p.x - 10}" y="${p.y}"
+        text-anchor="end" font-size="10.5" fill="var(--text)">${esc(lbl)}</text>
+    </g>`;
+  });
+
+  // Right nodes (sectors)
+  rightSet.forEach(name => {
+    const p = rightPos[name]; if (!p) return;
+    const col = nodeColor(name);
+    const lbl = name.length > 18 ? name.slice(0, 17) + '…' : name;
+    svgStr += `<g class="gnode" data-actor="${esc(name)}" style="cursor:pointer">
+      <circle class="arc-node-dot" cx="${p.x}" cy="${p.y}" r="4"
+        fill="${col}" fill-opacity="0.9" stroke="${col}" stroke-width="0.5"/>
+      <text class="arc-node-label" x="${p.x + 10}" y="${p.y}"
+        text-anchor="start" font-size="10.5" fill="var(--text)">${esc(lbl)}</text>
+    </g>`;
+  });
+
+  // Column labels
+  svgStr += `<text x="${lx - 10}" y="${SVG_H - 8}" text-anchor="end"
+    font-size="9" fill="var(--faint)" font-family="IBM Plex Mono,monospace">COUNTRIES</text>`;
+  svgStr += `<text x="${rx + 10}" y="${SVG_H - 8}" text-anchor="start"
+    font-size="9" fill="var(--faint)" font-family="IBM Plex Mono,monospace">DAC SECTORS</text>`;
+
+  svgStr += `</svg>`;
+
+  const legend = `<div style="font-size:11px;color:var(--mute);padding:4px 0 0;font-family:'IBM Plex Mono',monospace">
+    ${top25.length} connections · arc width = co-occurrence weight ·
+    <span style="color:var(--danger)">●</span> suspicious &nbsp;
+    <span style="color:var(--signal)">●</span> anomaly &nbsp;
+    <span style="color:var(--relate)">●</span> clean
+  </div>`;
+
+  // Replace SVG with the HTML string (preserves CSS class animations)
+  svgEl.outerHTML = `<div id="graph-svg-wrap" style="width:100%;flex:1;min-height:0;overflow:auto">
+    ${svgStr}${legend}</div>`;
+
+  // Reattach events on the new DOM
+  const wrap = document.getElementById('graph-svg-wrap');
+  if (!wrap) return;
+  const tip = _tooltip();
+
+  // Edge click / hover
+  wrap.querySelectorAll('.arc-hit, .arc-path').forEach(el => {
+    el.addEventListener('mouseover', (ev) => {
+      const a = el.getAttribute('data-ea'), b = el.getAttribute('data-eb');
+      const rel = top25.find(r => r.extra?.a === a && r.extra?.b === b);
+      if (rel) {
+        tip.style('display','block')
+          .style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px')
+          .html(`<b>${esc(a)}</b> ↔ <b>${esc(b)}</b><br>co-occurrences: <b>${rel.extra?.weight}</b>`);
+      }
+    });
+    el.addEventListener('mousemove', (ev) => {
+      tip.style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px');
+    });
+    el.addEventListener('mouseout', () => tip.style('display','none'));
+    el.addEventListener('click', () => {
+      const a = el.getAttribute('data-ea'), b = el.getAttribute('data-eb');
+      const rel = top25.find(r => r.extra?.a === a && r.extra?.b === b);
+      if (rel) showRelationshipAudit(a, b, rel);
+    });
+  });
+
+  // Node click
+  wrap.querySelectorAll('.gnode').forEach(el => {
+    const name = el.getAttribute('data-actor');
+    el.addEventListener('click', () => {
+      const isLeft = !!leftPos[name];
+      const edgeData = top25.map(r => ({ rel:r, a:r.extra?.a, b:r.extra?.b, w:1 }));
+      showNodeAudit(name, isLeft ? 'country' : 'sector', edgeData);
+    });
+  });
+}
 
   // Glow filter
   const defs   = svg.append('defs');
