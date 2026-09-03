@@ -166,112 +166,126 @@ function drawTopologyScatter(graphData, findingsData) {
 
 
 // ── 2. BIPARTITE RELATIONSHIP GRAPH ──────────────────────────────────────────
-// Hover: connected lines glow + pulse, unconnected lines dim
-// Click node: shows audit/detail in Audit Trail tab
 
 function drawBipartiteGraph(relationships) {
   const svgEl = _getSvg(); if (!svgEl) return;
   const { W, H } = _dims(svgEl);
-  const top = 28, bot = 20, lx = 8, rx = W - 8;
-  const lColW = 140, rColW = 130;
+  const lx = 8, rx = W - 8, lColW = 140, rColW = 130;
+  const top = 28, bot = 20;
 
-  const top25 = relationships.slice(0, 25);
+  const top25    = relationships.slice(0, 25);
   const leftSet  = [...new Set(top25.map(r => r.extra?.a || ''))].filter(Boolean);
   const rightSet = [...new Set(top25.map(r => r.extra?.b || ''))].filter(Boolean);
-
-  const leftY  = d3.scalePoint().domain(leftSet) .range([top, H - bot]).padding(0.3);
-  const rightY = d3.scalePoint().domain(rightSet).range([top, H - bot]).padding(0.3);
-  const maxW   = Math.max(1, ...top25.map(r => r.extra?.weight || 1));
+  const leftY    = d3.scalePoint().domain(leftSet) .range([top, H - bot]).padding(0.3);
+  const rightY   = d3.scalePoint().domain(rightSet).range([top, H - bot]).padding(0.3);
+  const maxW     = Math.max(1, ...top25.map(r => r.extra?.weight || 1));
+  const x1 = lx + lColW, x2 = rx - rColW, mid = (x1 + x2) / 2;
 
   const svg = d3.select(svgEl); svg.selectAll('*').remove();
 
-  // Add CSS animation for the pulse effect
-  const defs = svg.append('defs');
-  const filter = defs.append('filter').attr('id','glow');
-  filter.append('feGaussianBlur').attr('stdDeviation','3').attr('result','coloredBlur');
-  const feMerge = filter.append('feMerge');
-  feMerge.append('feMergeNode').attr('in','coloredBlur');
-  feMerge.append('feMergeNode').attr('in','SourceGraphic');
+  // Glow filter
+  const defs   = svg.append('defs');
+  const filter = defs.append('filter').attr('id','bip-glow').attr('x','-50%').attr('y','-50%').attr('width','200%').attr('height','200%');
+  filter.append('feGaussianBlur').attr('in','SourceGraphic').attr('stdDeviation','3').attr('result','blur');
+  const fm = filter.append('feMerge');
+  fm.append('feMergeNode').attr('in','blur');
+  fm.append('feMergeNode').attr('in','SourceGraphic');
 
   // Title
-  svg.append('text').attr('x', lx).attr('y', 16)
-    .attr('fill','#D9DCE3').attr('font-size',11).attr('font-weight',600)
+  svg.append('text').attr('x', lx).attr('y', 16).attr('fill','#D9DCE3')
+    .attr('font-size',11).attr('font-weight',600)
     .attr('font-family',"'Space Grotesk',sans-serif")
     .text('Relationship Graph — Country ↔ Sector');
 
-  const tip    = _tooltip();
-  const x1     = lx + lColW;
-  const x2     = rx - rColW;
+  const tip = _tooltip();
 
-  // Draw edges
-  const edgeGroup = svg.append('g').attr('class','edges');
-  const paths = [];
-  top25.forEach((rel, i) => {
-    const a = rel.extra?.a, b = rel.extra?.b;
-    if (!a || !b) return;
-    const y1  = leftY(a)  || 0;
-    const y2  = rightY(b) || 0;
-    const w   = 0.7 + ((rel.extra?.weight || 1) / maxW) * 3.8;
-    const mid = (x1 + x2) / 2;
-    const d   = `M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}`;
+  // ── Build edge data array ─────────────────────────────────────────────────
+  const edgeData = top25.map((rel, i) => {
+    const a = rel.extra?.a || '', b = rel.extra?.b || '';
+    const y1 = leftY(a) || 0, y2 = rightY(b) || 0;
+    const w  = 0.7 + ((rel.extra?.weight || 1) / maxW) * 3.8;
+    return { rel, a, b, y1, y2, w,
+      d: `M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}` };
+  }).filter(e => e.a && e.b);
 
-    const path = edgeGroup.append('path')
-      .attr('d', d).attr('fill','none')
-      .attr('stroke','rgba(94,156,166,.35)')
-      .attr('stroke-width', w)
-      .attr('data-left', a).attr('data-right', b)
-      .attr('data-weight', rel.extra?.weight || 1)
-      .attr('data-idx', i)
-      .style('cursor','pointer')
-      .style('transition','stroke .15s, stroke-opacity .15s, stroke-width .15s')
-      .on('mouseover', (ev) => highlightEdge(ev.target, w, a, b, rel, tip, ev))
-      .on('mousemove', (ev) => tip.style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px'))
-      .on('mouseout',  (ev) => { resetEdges(); tip.style('display','none'); })
-      .on('click',     ()   => showRelationshipAudit(a, b, rel));
+  // ── Draw edges ────────────────────────────────────────────────────────────
+  const edgePaths = svg.append('g')
+    .selectAll('path').data(edgeData).enter().append('path')
+    .attr('d', e => e.d)
+    .attr('fill', 'none')
+    .attr('stroke', 'rgba(94,156,166,.4)')
+    .attr('stroke-width', e => e.w)
+    .style('cursor', 'pointer')
+    .on('mouseover', function(ev, e) {
+      // Dim all, highlight this one amber
+      edgePaths.transition().duration(120)
+        .attr('stroke', d => d === e ? 'rgba(224,163,62,.95)' : 'rgba(42,47,58,.15)')
+        .attr('stroke-width', d => d === e ? d.w + 2.5 : d.w * 0.4)
+        .attr('filter', d => d === e ? 'url(#bip-glow)' : null);
+      tip.style('display','block')
+        .style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px')
+        .html(`<b>${esc(e.a)}</b> ↔ <b>${esc(e.b)}</b><br>co-occurrences: <b>${e.rel.extra?.weight}</b>`);
+    })
+    .on('mousemove', ev => tip.style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px'))
+    .on('mouseout', function() {
+      edgePaths.transition().duration(200)
+        .attr('stroke','rgba(94,156,166,.4)')
+        .attr('stroke-width', d => d.w)
+        .attr('filter', null);
+      tip.style('display','none');
+    })
+    .on('click', (ev, e) => showRelationshipAudit(e.a, e.b, e.rel));
 
-    paths.push({ path, a, b, w });
-  });
-
-  // Draw left nodes (countries)
-  const leftGroup = svg.append('g').attr('class','left-nodes');
+  // ── Draw left nodes (countries) ───────────────────────────────────────────
   leftSet.forEach(name => {
-    const y = leftY(name) || 0;
-    const g = leftGroup.append('g').attr('transform',`translate(${x1},${y})`).style('cursor','pointer');
-
-    g.append('circle').attr('r', 6)
-      .attr('fill','#4EA8DE').attr('fill-opacity',.85)
-      .attr('stroke','#2a7db5').attr('stroke-width',1.5)
-      .attr('class','node-circle');
-
-    g.append('text').attr('x',-10).attr('y',4).attr('text-anchor','end')
-      .attr('fill','#D9DCE3').attr('font-size',10.5)
-      .attr('font-family',"'Space Grotesk',sans-serif")
+    const y   = leftY(name) || 0;
+    const grp = svg.append('g').attr('transform',`translate(${x1},${y})`).style('cursor','pointer');
+    const dot = grp.append('circle').attr('r',6).attr('fill','#4EA8DE')
+                   .attr('fill-opacity',.85).attr('stroke','#2a7db5').attr('stroke-width',1.5);
+    grp.append('text').attr('x',-11).attr('y',4).attr('text-anchor','end')
+      .attr('fill','#D9DCE3').attr('font-size',10.5).attr('font-family',"'Space Grotesk',sans-serif")
       .text(name.length > 20 ? name.slice(0,19)+'…' : name);
 
-    g.on('mouseover', () => highlightNodeEdges(name, 'left', paths, tip))
-     .on('mouseout',  () => { resetEdges(); tip.style('display','none'); })
-     .on('click',     () => showNodeAudit(name, 'country', paths, top25));
+    grp.on('mouseover', function() {
+      edgePaths.transition().duration(120)
+        .attr('stroke', d => d.a === name ? 'rgba(155,127,212,.9)' : 'rgba(42,47,58,.12)')
+        .attr('stroke-width', d => d.a === name ? d.w + 2 : d.w * 0.35)
+        .attr('filter', d => d.a === name ? 'url(#bip-glow)' : null);
+      dot.transition().duration(100).attr('r', 9).attr('fill','#8EC8F0');
+    })
+    .on('mouseout', function() {
+      edgePaths.transition().duration(200)
+        .attr('stroke','rgba(94,156,166,.4)').attr('stroke-width', d=>d.w).attr('filter',null);
+      dot.transition().duration(150).attr('r', 6).attr('fill','#4EA8DE');
+      tip.style('display','none');
+    })
+    .on('click', () => showNodeAudit(name, 'country', edgeData));
   });
 
-  // Draw right nodes (sectors)
-  const rightGroup = svg.append('g').attr('class','right-nodes');
+  // ── Draw right nodes (sectors) ────────────────────────────────────────────
   rightSet.forEach(name => {
-    const y = rightY(name) || 0;
-    const g = rightGroup.append('g').attr('transform',`translate(${x2},${y})`).style('cursor','pointer');
-
-    g.append('circle').attr('r', 6)
-      .attr('fill','#9B7FD4').attr('fill-opacity',.85)
-      .attr('stroke','#6B4DA0').attr('stroke-width',1.5)
-      .attr('class','node-circle');
-
-    g.append('text').attr('x', 10).attr('y', 4).attr('text-anchor','start')
-      .attr('fill','#D9DCE3').attr('font-size',10.5)
-      .attr('font-family',"'Space Grotesk',sans-serif")
+    const y   = rightY(name) || 0;
+    const grp = svg.append('g').attr('transform',`translate(${x2},${y})`).style('cursor','pointer');
+    const dot = grp.append('circle').attr('r',6).attr('fill','#9B7FD4')
+                   .attr('fill-opacity',.85).attr('stroke','#6B4DA0').attr('stroke-width',1.5);
+    grp.append('text').attr('x', 11).attr('y', 4).attr('text-anchor','start')
+      .attr('fill','#D9DCE3').attr('font-size',10.5).attr('font-family',"'Space Grotesk',sans-serif")
       .text(name.length > 20 ? name.slice(0,19)+'…' : name);
 
-    g.on('mouseover', () => highlightNodeEdges(name, 'right', paths, tip))
-     .on('mouseout',  () => { resetEdges(); tip.style('display','none'); })
-     .on('click',     () => showNodeAudit(name, 'sector', paths, top25));
+    grp.on('mouseover', function() {
+      edgePaths.transition().duration(120)
+        .attr('stroke', d => d.b === name ? 'rgba(155,127,212,.9)' : 'rgba(42,47,58,.12)')
+        .attr('stroke-width', d => d.b === name ? d.w + 2 : d.w * 0.35)
+        .attr('filter', d => d.b === name ? 'url(#bip-glow)' : null);
+      dot.transition().duration(100).attr('r', 9).attr('fill','#C4A8E8');
+    })
+    .on('mouseout', function() {
+      edgePaths.transition().duration(200)
+        .attr('stroke','rgba(94,156,166,.4)').attr('stroke-width', d=>d.w).attr('filter',null);
+      dot.transition().duration(150).attr('r', 6).attr('fill','#9B7FD4');
+      tip.style('display','none');
+    })
+    .on('click', () => showNodeAudit(name, 'sector', edgeData));
   });
 
   // Column labels
@@ -279,45 +293,6 @@ function drawBipartiteGraph(relationships) {
     .attr('font-family',"'IBM Plex Mono',monospace").text('◉ COUNTRIES');
   svg.append('text').attr('x',rx).attr('y',H-6).attr('text-anchor','end').attr('fill','#59616E')
     .attr('font-size',9).attr('font-family',"'IBM Plex Mono',monospace").text('DAC SECTORS ◉');
-
-  // ── Helper: highlight edges connected to a node ─────────────────────────────
-  function highlightNodeEdges(name, side, paths, tip) {
-    paths.forEach(({ path, a, b, w }) => {
-      const connected = side === 'left' ? a === name : b === name;
-      if (connected) {
-        path.attr('stroke','rgba(155,127,212,.95)')
-            .attr('stroke-width', w + 2)
-            .attr('filter','url(#glow)')
-            .style('transition','stroke .1s');
-      } else {
-        path.attr('stroke','rgba(42,47,58,.3)')
-            .attr('stroke-width', w * 0.6);
-      }
-    });
-    // Highlight the node circle
-    d3.selectAll('.node-circle').attr('fill-opacity', d => .3);
-    svg.selectAll('g').filter(function() {
-      const t = d3.select(this).select('text').text();
-      return t.startsWith(name.slice(0,10));
-    }).select('.node-circle').attr('fill-opacity', 1).attr('r', 8);
-  }
-
-  function highlightEdge(el, w, a, b, rel, tip, ev) {
-    paths.forEach(({ path, w: pw }) => path.attr('stroke','rgba(42,47,58,.25)').attr('stroke-width', pw*0.5));
-    d3.select(el).attr('stroke','rgba(224,163,62,.95)').attr('stroke-width', w+2).attr('filter','url(#glow)');
-    tip.style('display','block')
-       .style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px')
-       .html(`<b>${esc(a)}</b> ↔ <b>${esc(b)}</b><br>co-occurrences: <b>${rel.extra?.weight}</b>`);
-  }
-
-  function resetEdges() {
-    paths.forEach(({ path, w }) => {
-      path.attr('stroke','rgba(94,156,166,.35)')
-          .attr('stroke-width', w)
-          .attr('filter', null);
-    });
-    svg.selectAll('.node-circle').attr('r', 6).attr('fill-opacity', .85);
-  }
 }
 
 // ── Node click → Audit Trail ──────────────────────────────────────────────────
