@@ -69,13 +69,16 @@ function drawTopologyScatter(mapperNodes, mapperEdges, scoreMap) {
     // State classification
     let state;
     if (maxScore > 0.6 || fracAnom > 0.4)      state = 'anomalous';
-    else if (avgScore > 0.3 || fracAnom > 0.15) state = 'warning';
+    else if (avgScore > 0.2 || fracAnom > 0.1)  state = 'warning';
     else                                         state = 'normal';
+
+    // Spread Y more — use fracAnom + avgScore combo so nodes use full Y range
+    const topoY = Math.min(fracAnom * 0.5 + avgScore * 0.5, 1.0);
 
     return {
       ...nd,
       yearX:     yearProxy + jitter,
-      topoY:     Math.min(avgScore * 1.1, 1.0),
+      topoY,
       avgScore,
       maxScore,
       fracAnom,
@@ -86,7 +89,8 @@ function drawTopologyScatter(mapperNodes, mapperEdges, scoreMap) {
 
   // ── Scales ────────────────────────────────────────────────────────────────
   const xDomain = [YEAR_MIN - 1, YEAR_MAX + 1];
-  const yDomain = [0, Math.max(0.55, d3.max(enriched, d => d.topoY) * 1.15)];
+  const yMax    = d3.max(enriched, d => d.topoY) || 0.5;
+  const yDomain = [0, Math.max(yMax * 1.25, 0.1)];
 
   const xScale = d3.scaleLinear().domain(xDomain).range([0, innerW]);
   const yScale = d3.scaleLinear().domain(yDomain).range([innerH, 0]);
@@ -153,10 +157,14 @@ function drawTopologyScatter(mapperNodes, mapperEdges, scoreMap) {
     : d3.select('#topo-tooltip');
 
   const nodeG = root.append('g').attr('class', 'mapper-nodes');
+  // Normalize size for radius: log scale, cap 5–14px
+  const maxSize = Math.max(1, ...enriched.map(n => n.size || 1));
+  const rScale  = d3.scaleSqrt().domain([1, maxSize]).range([5, 13]);
+
   enriched.forEach((nd, i) => {
     const cx  = xScale(nd.yearX);
     const cy  = yScale(nd.topoY);
-    const r   = 5 + Math.sqrt(nd.size || 1) * 1.8;
+    const r   = rScale(nd.size || 1);
     const col = stateColor[nd.state];
     const str = stateStroke[nd.state];
 
@@ -164,19 +172,21 @@ function drawTopologyScatter(mapperNodes, mapperEdges, scoreMap) {
       .attr('transform', `translate(${cx},${cy})`)
       .style('cursor', 'pointer');
 
-    // Outer glow for anomalous
+    // Subtle ring for anomalous (not glow)
     if (nd.state === 'anomalous') {
-      g.append('circle').attr('r', r + 4)
-        .attr('fill', 'rgba(224,82,82,.15)')
-        .attr('stroke', 'none');
+      g.append('circle').attr('r', r + 3)
+        .attr('fill', 'none')
+        .attr('stroke', 'rgba(224,82,82,.35)')
+        .attr('stroke-width', 1.5)
+        .attr('stroke-dasharray', '3,2');
     }
 
     g.append('circle')
       .attr('r', r)
       .attr('fill', col)
-      .attr('fill-opacity', 0.82)
+      .attr('fill-opacity', 0.85)
       .attr('stroke', str)
-      .attr('stroke-width', 1.5);
+      .attr('stroke-width', 1.2);
 
     // Highlight the top anomalous node with label
     if (nd.state === 'anomalous' && nd.avgScore === Math.max(...enriched.map(n => n.avgScore))) {
@@ -191,7 +201,7 @@ function drawTopologyScatter(mapperNodes, mapperEdges, scoreMap) {
     }
 
     g.on('mouseover', (event) => {
-      g.select('circle').attr('stroke-width', 2.5).attr('r', r + 1.5);
+      g.select('circle:last-of-type').attr('stroke-width', 2).attr('r', r + 2);
       tooltip
         .style('display', 'block')
         .style('left', (event.clientX + 12) + 'px')
@@ -208,7 +218,7 @@ function drawTopologyScatter(mapperNodes, mapperEdges, scoreMap) {
       tooltip.style('left', (event.clientX + 12) + 'px').style('top', (event.clientY - 28) + 'px');
     })
     .on('mouseout', () => {
-      g.select('circle').attr('stroke-width', 1.5).attr('r', r);
+      g.select('circle:last-of-type').attr('stroke-width', 1.2).attr('r', r);
       tooltip.style('display', 'none');
     })
     .on('click', () => showMapperNodeInfo(nd));
