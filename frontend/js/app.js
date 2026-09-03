@@ -282,18 +282,15 @@ async function drawTDAExplorerGraph() {
       fetch(`${API}/api/findings`).then(r => r.json()),
     ]);
 
-    // Explicitly size the explorer SVG to fill its container BEFORE the ID swap
-    const container = svgEl.parentElement;
-    if (container) {
-      const cW = container.offsetWidth  || container.clientWidth  || 600;
-      const cH = container.offsetHeight || container.clientHeight || 500;
-      const svgW = Math.max(cW - 32, 400);   // minus padding
-      const svgH = Math.max(cH - 60, 340);   // minus caption
-      svgEl.setAttribute('width',  svgW);
-      svgEl.setAttribute('height', svgH);
-      svgEl.style.width  = svgW + 'px';
-      svgEl.style.height = svgH + 'px';
-    }
+    // Compute graph dimensions from window size + known fixed column widths
+    // (container.offsetWidth is unreliable for flex/grid items during transition)
+    const FEAT_COL = 190, CFG_COL = 270, PADDING = 40;
+    const svgW = Math.max(window.innerWidth - FEAT_COL - CFG_COL - PADDING, 400);
+    const svgH = Math.max(window.innerHeight - 100 - 60, 350); // minus header/nav/caption
+    svgEl.setAttribute('width',  svgW);
+    svgEl.setAttribute('height', svgH);
+    svgEl.style.width  = svgW + 'px';
+    svgEl.style.height = svgH + 'px';
 
     // Draw directly into #tda-explorer-graph by temporarily aliasing the ID
     const mainSvg = document.getElementById('graph-svg');

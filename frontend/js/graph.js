@@ -647,24 +647,35 @@ function showMapperNodeInfo(nd, stateColor) {
 function _getSvg() { return document.getElementById('graph-svg'); }
 
 function _dims(svgEl, marginOverride) {
-  // Prefer parent container width (reliable inside flex/grid after layout)
-  const parent = svgEl.parentElement;
-  const pW     = parent ? parent.clientWidth  || parent.offsetWidth  : 0;
-  const pH     = parent ? parent.clientHeight || parent.offsetHeight : 0;
-  const rect   = svgEl.getBoundingClientRect();
+  // If the SVG already has explicit pixel dimensions set (e.g. by drawTDAExplorerGraph),
+  // honour them instead of recalculating — prevents overwriting pre-sized TDA Explorer SVG.
+  const existingW = parseInt(svgEl.getAttribute('width'),  10);
+  const existingH = parseInt(svgEl.getAttribute('height'), 10);
 
-  const W = Math.max(pW || rect.width  || svgEl.clientWidth  || 500, 300);
-  const H = Math.max(
-    pH > 60 ? pH - 50 : 0,         // parent height minus caption
-    rect.height || svgEl.clientHeight || 340,
-    260
-  );
+  let W, H;
+  if (existingW > 200 && existingH > 200) {
+    W = existingW;
+    H = existingH;
+  } else {
+    // Prefer parent container width (reliable inside flex/grid after layout)
+    const parent = svgEl.parentElement;
+    const pW     = parent ? parent.clientWidth  || parent.offsetWidth  : 0;
+    const pH     = parent ? parent.clientHeight || parent.offsetHeight : 0;
+    const rect   = svgEl.getBoundingClientRect();
 
-  // Set explicit pixel dimensions so D3 coordinate space fills the element
-  svgEl.setAttribute('width',  W);
-  svgEl.setAttribute('height', H);
-  svgEl.style.width  = W + 'px';
-  svgEl.style.height = H + 'px';
+    W = Math.max(pW || rect.width  || svgEl.clientWidth  || 500, 300);
+    H = Math.max(
+      pH > 60 ? pH - 50 : 0,
+      rect.height || svgEl.clientHeight || 340,
+      260
+    );
+
+    // Set explicit pixel dimensions so D3 coordinate space fills the element
+    svgEl.setAttribute('width',  W);
+    svgEl.setAttribute('height', H);
+    svgEl.style.width  = W + 'px';
+    svgEl.style.height = H + 'px';
+  }
 
   const margin = Object.assign({ top:32, right:20, bottom:50, left:52 }, marginOverride||{});
   return { W, H, margin, innerW: W-margin.left-margin.right, innerH: H-margin.top-margin.bottom };
