@@ -194,6 +194,19 @@ function drawTopologyScatter(graphData, findingsData) {
   document.head.appendChild(s);
 })();
 
+// ── Bipartite global state (for inline onclick handlers) ─────────────────────
+let _bipTop25 = [], _bipLeftPos = {};
+
+function _bipNodeClick(name) {
+  const isLeft = !!_bipLeftPos[name];
+  const edgeData = _bipTop25.map(r => ({ rel:r, a:r.extra?.a, b:r.extra?.b, w:1 }));
+  showNodeAudit(name, isLeft ? 'country' : 'sector', edgeData);
+}
+function _bipArcClick(a, b) {
+  const rel = _bipTop25.find(r => r.extra?.a === a && r.extra?.b === b);
+  if (rel) showRelationshipAudit(a, b, rel);
+}
+
 // ── 2. BIPARTITE RELATIONSHIP GRAPH ──────────────────────────────────────────
 
 function drawBipartiteGraph(relationships) {
@@ -216,6 +229,10 @@ function drawBipartiteGraph(relationships) {
   const leftPos  = {}, rightPos = {};
   leftSet.forEach((n, i)  => { leftPos[n]  = { x: lx, y: TITLE_H + PAD + rowPx * (i + 0.5) }; });
   rightSet.forEach((n, i) => { rightPos[n] = { x: rx, y: TITLE_H + PAD + rowPx * (i + 0.5) }; });
+
+  // Store in globals for inline onclick handlers (DOMParser clones can't use closures)
+  _bipTop25    = top25;
+  _bipLeftPos  = leftPos;
 
   // Anomaly/suspicious color coding
   const anomIds = new Set((_findingsData?.anomalies || []).flatMap(a => a.sources || []));
@@ -254,14 +271,15 @@ function drawBipartiteGraph(relationships) {
     const del  = (-(i % 13) * 0.22).toFixed(2);
     const d    = `M ${lp.x} ${lp.y} C ${cx} ${lp.y}, ${cx} ${rp.y}, ${rx} ${rp.y}`;
 
-    // Invisible wide hit area
+    // Invisible wide hit area — inline onclick for reliable DOMParser-cloned elements
     svgStr += `<path d="${d}" fill="none" stroke="transparent" stroke-width="14"
       style="cursor:pointer" data-ea="${esc(a)}" data-eb="${esc(b)}"
-      class="arc-hit" data-idx="${i}"/>`;
+      onclick="_bipArcClick('${esc(a)}','${esc(b)}')" class="arc-hit" data-idx="${i}"/>`;
     // Animated visible arc
     svgStr += `<path class="arc-path arc-flow" d="${d}"
       stroke="${col}" stroke-width="${w}"
       style="--pdur:${pdur}s;--delay:${del}s;--op:${op};cursor:pointer"
+      onclick="_bipArcClick('${esc(a)}','${esc(b)}')"
       data-ea="${esc(a)}" data-eb="${esc(b)}" data-idx="${i}"/>`;
   });
 
@@ -270,7 +288,8 @@ function drawBipartiteGraph(relationships) {
     const p = leftPos[name]; if (!p) return;
     const col = nodeColor(name);
     const lbl = name.length > 18 ? name.slice(0, 17) + '…' : name;
-    svgStr += `<g class="gnode" data-actor="${esc(name)}" style="cursor:pointer">
+    svgStr += `<g class="gnode" data-actor="${esc(name)}" style="cursor:pointer"
+      onclick="_bipNodeClick('${esc(name)}')">
       <circle class="arc-node-dot" cx="${p.x}" cy="${p.y}" r="4"
         fill="${col}" fill-opacity="0.9" stroke="${col}" stroke-width="0.5"/>
       <text class="arc-node-label" x="${p.x - 10}" y="${p.y}"
@@ -283,7 +302,8 @@ function drawBipartiteGraph(relationships) {
     const p = rightPos[name]; if (!p) return;
     const col = nodeColor(name);
     const lbl = name.length > 18 ? name.slice(0, 17) + '…' : name;
-    svgStr += `<g class="gnode" data-actor="${esc(name)}" style="cursor:pointer">
+    svgStr += `<g class="gnode" data-actor="${esc(name)}" style="cursor:pointer"
+      onclick="_bipNodeClick('${esc(name)}')">
       <circle class="arc-node-dot" cx="${p.x}" cy="${p.y}" r="4"
         fill="${col}" fill-opacity="0.9" stroke="${col}" stroke-width="0.5"/>
       <text class="arc-node-label" x="${p.x + 10}" y="${p.y}"

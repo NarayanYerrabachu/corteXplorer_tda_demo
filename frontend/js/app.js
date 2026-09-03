@@ -272,9 +272,9 @@ async function drawTDAExplorerGraph() {
   const svgEl = document.getElementById('tda-explorer-graph');
   if (!svgEl || typeof d3 === 'undefined') return;
 
-  // Wait 2 frames + small delay so flex/grid layout is fully computed
+  // Wait 2 frames + delay so flex/grid layout is fully computed before measuring
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-  await new Promise(r => setTimeout(r, 30));
+  await new Promise(r => setTimeout(r, 80));
 
   try {
     const [graphData, findingsData] = await Promise.all([
@@ -282,9 +282,21 @@ async function drawTDAExplorerGraph() {
       fetch(`${API}/api/findings`).then(r => r.json()),
     ]);
 
+    // Explicitly size the explorer SVG to fill its container BEFORE the ID swap
+    const container = svgEl.parentElement;
+    if (container) {
+      const cW = container.offsetWidth  || container.clientWidth  || 600;
+      const cH = container.offsetHeight || container.clientHeight || 500;
+      const svgW = Math.max(cW - 32, 400);   // minus padding
+      const svgH = Math.max(cH - 60, 340);   // minus caption
+      svgEl.setAttribute('width',  svgW);
+      svgEl.setAttribute('height', svgH);
+      svgEl.style.width  = svgW + 'px';
+      svgEl.style.height = svgH + 'px';
+    }
+
     // Draw directly into #tda-explorer-graph by temporarily aliasing the ID
     const mainSvg = document.getElementById('graph-svg');
-    if (mainSvg) mainSvg.setAttribute('data-real-id', 'graph-svg');
     if (mainSvg) mainSvg.id = '__graph_hidden__';
     svgEl.id = 'graph-svg';
 
