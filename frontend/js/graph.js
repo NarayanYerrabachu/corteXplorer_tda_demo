@@ -238,116 +238,68 @@ function drawBipartiteGraph(relationships) {
 }
 
 
-// ── 3. SUSPICIOUS CHART ───────────────────────────────────────────────────────
+// ── 3 & 4. SUSPICIOUS + ANOMALY — same bubble scatter, different color ────────
+//  suspicious → red (#E05252)   anomaly → amber (#E0A33E)
 
 function drawSuspiciousChart(suspicious) {
+  _drawBubbleScatter(suspicious, '#E05252', 'rgba(224,82,82,.18)',
+    'Suspicious Projects — Anomaly Score', 'suspicious records (ranked)');
+}
+
+function drawAnomalyScatter(anomalies) {
+  _drawBubbleScatter(anomalies, '#E0A33E', 'rgba(224,163,62,.15)',
+    'Anomalous Projects — Anomaly Score', 'anomalous records (ranked)');
+}
+
+function _drawBubbleScatter(items, dotColor, glowColor, title, xLabel) {
   const svgEl = _getSvg(); if (!svgEl) return;
   const { W, H, margin, innerW, innerH } = _dims(svgEl);
   const svg = d3.select(svgEl); svg.selectAll('*').remove();
 
-  svg.append('text').attr('x',margin.left).attr('y',16)
-    .attr('fill','#D9DCE3').attr('font-size',11).attr('font-weight',600)
-    .attr('font-family',"'Space Grotesk',sans-serif").text('Suspicious Projects — Anomaly vs Overrun');
-
-  if (!suspicious.length) { _graphError('No suspicious records'); return; }
-
-  const root = svg.append('g').attr('transform',`translate(${margin.left},${margin.top})`);
-  const scores  = suspicious.map(s => s.score || 0);
-  const xScale  = d3.scalePoint().domain(suspicious.map((_,i)=>`S${i+1}`)).range([0,innerW]).padding(0.4);
-  const yScale  = d3.scaleLinear().domain([0, 1]).range([innerH, 0]);
-
-  root.selectAll('line.v').data(yScale.ticks(5)).enter().append('line')
-    .attr('x1',0).attr('x2',innerW).attr('y1',d=>yScale(d)).attr('y2',d=>yScale(d))
-    .attr('stroke','rgba(42,47,58,.6)').attr('stroke-dasharray','3,3');
-
-  const tip = _tooltip();
-  root.selectAll('circle').data(suspicious).enter().append('circle')
-    .attr('cx',(_,i)=>xScale(`S${i+1}`))
-    .attr('cy',d=>yScale(d.score||0))
-    .attr('r', d => 5 + (d.score||0) * 8)
-    .attr('fill', d => d.score>0.7?'#E05252':d.score>0.4?'#E0A33E':'#4EA8DE')
-    .attr('fill-opacity',.8).attr('stroke','rgba(255,255,255,.2)').attr('stroke-width',1)
-    .style('cursor','pointer')
-    .on('mouseover',(ev,d)=>{
-      tip.style('display','block').style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px')
-        .html(`<b>${esc(d.title||'').slice(0,40)}</b><br>score: ${d.score?.toFixed(3)}<br>${esc((d.detail||'').slice(0,60))}`);
-    }).on('mousemove',(ev)=>tip.style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px'))
-      .on('mouseout',()=>tip.style('display','none'))
-      .on('click',(ev,d)=>{ const pid=(d.sources||[])[0]; if(pid) loadAudit(pid); });
-
-  _axes(root, xScale, yScale, innerH, innerW, 'suspicious records (ranked)', 'anomaly score');
-}
-
-
-// ── 4. ANOMALY CHART — ranked horizontal bars (country · sector · score) ──────
-
-function drawAnomalyScatter(anomalies) {
-  const svgEl = _getSvg(); if (!svgEl) return;
-  const { W, H, margin, innerW, innerH } = _dims(svgEl, {top:28,right:16,bottom:16,left:56});
-  const svg = d3.select(svgEl); svg.selectAll('*').remove();
-
   svg.append('text').attr('x', margin.left).attr('y', 16)
     .attr('fill','#D9DCE3').attr('font-size',11).attr('font-weight',600)
-    .attr('font-family',"'Space Grotesk',sans-serif").text('Top Anomalies — Score Ranking');
+    .attr('font-family',"'Space Grotesk',sans-serif").text(title);
 
-  if (!anomalies.length) { _graphError('No anomalies'); return; }
+  if (!items.length) { _graphError('No data'); return; }
 
-  const top = anomalies.slice(0, Math.min(20, anomalies.length));
-  const labels = top.map(a => {
-    const ex = a.extra || {};
-    const c  = (ex.country  || '').slice(0, 12);
-    const s  = (ex.dac_sector || '').slice(0, 10);
-    return c ? `${c}·${s}` : (a.sources||['?'])[0];
-  });
+  const root   = svg.append('g').attr('transform',`translate(${margin.left},${margin.top})`);
+  const xScale = d3.scalePoint().domain(items.map((_,i)=>`#${i+1}`)).range([0,innerW]).padding(0.4);
+  const yScale = d3.scaleLinear().domain([0, 1.05]).range([innerH, 0]);
 
-  const root    = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
-  const yScale  = d3.scaleBand().domain(labels).range([0, innerH]).padding(0.22);
-  const xScale  = d3.scaleLinear().domain([0, 1]).range([0, innerW]);
-
-  // Grid
-  root.append('g').selectAll('line').data(xScale.ticks(5)).enter().append('line')
-    .attr('x1',d=>xScale(d)).attr('x2',d=>xScale(d)).attr('y1',0).attr('y2',innerH)
-    .attr('stroke','rgba(42,47,58,.6)').attr('stroke-dasharray','3,3');
+  // Grid lines
+  root.append('g').selectAll('line').data(yScale.ticks(5)).enter().append('line')
+    .attr('x1',0).attr('x2',innerW).attr('y1',d=>yScale(d)).attr('y2',d=>yScale(d))
+    .attr('stroke','rgba(42,47,58,.7)').attr('stroke-dasharray','3,3');
 
   const tip = _tooltip();
-  const barH = yScale.bandwidth();
 
-  top.forEach((a, i) => {
-    const score = a.score || 0;
-    const col   = score > 0.8 ? '#E05252' : score > 0.5 ? '#E0A33E' : '#9B7FD4';
-    const y     = yScale(labels[i]);
-    const w     = xScale(score);
+  root.selectAll('circle.glow').data(items).enter().append('circle')
+    .attr('cx',(_,i)=>xScale(`#${i+1}`))
+    .attr('cy',d=>yScale(d.score||0))
+    .attr('r', d => 10 + (d.score||0) * 8)
+    .attr('fill', glowColor)
+    .attr('stroke','none');
 
-    // Background bar
-    root.append('rect').attr('x',0).attr('y',y).attr('width',innerW).attr('height',barH)
-      .attr('fill', i%2===0 ? 'rgba(26,29,36,.6)' : 'rgba(32,36,45,.4)');
+  root.selectAll('circle.dot').data(items).enter().append('circle')
+    .attr('cx',(_,i)=>xScale(`#${i+1}`))
+    .attr('cy',d=>yScale(d.score||0))
+    .attr('r', d => 5 + (d.score||0) * 6)
+    .attr('fill', dotColor)
+    .attr('fill-opacity',.85)
+    .attr('stroke','rgba(255,255,255,.15)')
+    .attr('stroke-width',1)
+    .style('cursor','pointer')
+    .on('mouseover',(ev,d)=>{
+      const ex = d.extra||{};
+      const ovr = ex.cost_overrun_pct != null ? ` · overrun ${(ex.cost_overrun_pct*100).toFixed(1)}%` : '';
+      tip.style('display','block').style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px')
+        .html(`<b>${esc((d.title||'').slice(0,45))}</b><br>score: <b>${(d.score||0).toFixed(3)}</b>${ovr}<br>${esc((d.detail||'').slice(0,60))}`);
+    })
+    .on('mousemove',(ev)=>tip.style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px'))
+    .on('mouseout',()=>tip.style('display','none'))
+    .on('click',(ev,d)=>{ const pid=(d.sources||[])[0]; if(pid) loadAudit(pid); });
 
-    // Score bar
-    root.append('rect').attr('x',0).attr('y',y+2).attr('width',w).attr('height',barH-4)
-      .attr('fill',col).attr('fill-opacity',.75).attr('rx',2)
-      .style('cursor','pointer')
-      .on('mouseover',(ev)=>{
-        const ex = a.extra||{};
-        tip.style('display','block').style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px')
-          .html(`<b>${esc((a.title||'').slice(0,50))}</b><br>score: <b>${score.toFixed(3)}</b><br>iso: ${(ex.iso_score||0).toFixed(3)} · topo: ${(ex.topo_score||0).toFixed(3)}<br>overrun: ${ex.cost_overrun_pct != null ? (ex.cost_overrun_pct*100).toFixed(1)+'%' : 'N/A'}`);
-      }).on('mousemove',(ev)=>tip.style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px'))
-        .on('mouseout',()=>tip.style('display','none'))
-        .on('click',()=>{ const pid=(a.sources||[])[0]; if(pid) loadAudit(pid); });
-
-    // Label (left, truncated)
-    root.append('text').attr('x',-4).attr('y',y+barH/2+4).attr('text-anchor','end')
-      .attr('fill','#878E9C').attr('font-size',8.5).attr('font-family',"'IBM Plex Mono',monospace")
-      .text(labels[i].slice(0,16));
-
-    // Score value
-    root.append('text').attr('x',w+4).attr('y',y+barH/2+4).attr('text-anchor','start')
-      .attr('fill',col).attr('font-size',8).attr('font-family',"'IBM Plex Mono',monospace")
-      .attr('font-weight',600).text(score.toFixed(3));
-  });
-
-  // X axis
-  root.append('g').attr('transform',`translate(0,${innerH})`).call(d3.axisBottom(xScale).ticks(5).tickFormat(d3.format('.1f')))
-    .call(g=>{ g.select('.domain').attr('stroke','var(--line)'); g.selectAll('text').attr('fill','#878E9C').attr('font-size',9); g.selectAll('line').attr('stroke','var(--line)'); });
+  _axes(root, xScale, yScale, innerH, innerW, xLabel, 'anomaly score');
 }
 
 
