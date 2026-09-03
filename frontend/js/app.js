@@ -150,50 +150,107 @@ function initSearch() {
 // ── Report buttons ────────────────────────────────────────────────────────────
 
 function initReportButtons() {
-  // Report → same tab navigation (like Dashboard / Chat)
+  // Report → in-page view (no navigation, no new tab)
   const btn = document.getElementById('btn-report');
-  if (btn) btn.onclick = () => { window.location.href = `${API}/report/html`; };
+  if (btn) btn.onclick = () => showView('report');
 
   const ai = document.getElementById('btn-ai-report');
-  if (ai) ai.onclick = async () => {
-    toast('Generating AI report…');
-    try {
-      const data = await fetch(`${API}/api/report/ai`).then(r => r.json());
-      // Navigate to report page; if AI section available, pass via sessionStorage
-      if (data.ai_section) {
-        sessionStorage.setItem('cortex_ai_section', data.ai_section);
-        sessionStorage.setItem('cortex_ai_note',    data.ai_note || '');
-      }
-      window.location.href = `${API}/report/html?ai=1`;
-    } catch (e) { toast('AI report unavailable'); }
+  if (ai) ai.onclick = () => {
+    showView('report');
+    // Trigger AI section load after report view is open
+    setTimeout(loadInlineAIReport, 300);
   };
+
+  // Wire up the AI Insights button inside the report view
+  const aiInline = document.getElementById('btn-report-ai-inline');
+  if (aiInline) aiInline.onclick = loadInlineAIReport;
 }
 
 // ── View switching (Analysis ↔ TDA Explorer) ─────────────────────────────────
 
 let _activeView = 'analysis';
 
+const VIEWS = ['work', 'view-tda-explorer', 'view-report'];
+
 function showView(name) {
   _activeView = name;
-  const work    = document.querySelector('.work');
-  const explorer = document.getElementById('view-tda-explorer');
+
+  // Hide all switchable views
+  const work = document.querySelector('.work');
+  if (work) work.style.display = 'none';
+  VIEWS.filter(v => v !== 'work').forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+
   if (name === 'tda-explorer') {
-    if (work)     work.style.display    = 'none';
-    if (explorer) explorer.style.display = 'flex';
-    // Populate feature list if not yet done
+    const el = document.getElementById('view-tda-explorer');
+    if (el) el.style.display = 'flex';
     buildTDAFeatureList();
-    // Draw topology graph in explorer panel
     drawTDAExplorerGraph();
+
+  } else if (name === 'report') {
+    const el = document.getElementById('view-report');
+    if (el) el.style.display = 'flex';
+    loadInlineReport();
+
   } else {
-    if (work)     work.style.display    = '';
-    if (explorer) explorer.style.display = 'none';
+    // analysis (default)
+    if (work) work.style.display = '';
   }
-  // Update nav active state
+
+  // Update nav highlight
   document.querySelectorAll('.navbtn').forEach(b => b.classList.remove('active'));
-  const activeBtn = name === 'tda-explorer'
-    ? document.getElementById('btn-explorer')
-    : document.querySelector('.navbtn[data-nav="analysis"]');
-  if (activeBtn) activeBtn.classList.add('active');
+  const navMap = {
+    'tda-explorer': 'btn-explorer',
+    'report':       'btn-report',
+    'analysis':     null,
+  };
+  const btnId = navMap[name];
+  if (btnId) {
+    const btn = document.getElementById(btnId);
+    if (btn) btn.classList.add('active');
+  } else {
+    const btn = document.querySelector('.navbtn[data-nav="analysis"]');
+    if (btn) btn.classList.add('active');
+  }
+}
+
+async function loadInlineReport() {
+  const pre = document.getElementById('report-content');
+  if (!pre) return;
+  pre.textContent = 'Loading report…';
+  try {
+    const data = await fetch(`${API}/api/report`).then(r => r.json());
+    pre.textContent = data.report || 'No report data.';
+  } catch(e) {
+    pre.textContent = 'Report unavailable — check the API server.';
+  }
+}
+
+async function loadInlineAIReport() {
+  const btn     = document.getElementById('btn-report-ai-inline');
+  const section = document.getElementById('report-ai-section');
+  const textEl  = document.getElementById('report-ai-text');
+  if (!btn || !section || !textEl) return;
+  btn.textContent = 'Loading AI insights…';
+  btn.disabled    = true;
+  try {
+    const data = await fetch(`${API}/api/report/ai`).then(r => r.json());
+    if (data.ai_section) {
+      textEl.innerHTML = data.ai_section.replace(/\n/g, '<br>');
+      section.style.display = 'block';
+      btn.textContent = '✓ AI Insights loaded';
+    } else {
+      textEl.innerHTML = `<span style="color:var(--faint)">${data.ai_note || 'No AI insights — set OPENAI_API_KEY in .env'}</span>`;
+      section.style.display = 'block';
+      btn.textContent = 'AI Insights';
+      btn.disabled    = false;
+    }
+  } catch(e) {
+    btn.textContent = 'AI unavailable';
+    btn.disabled    = false;
+  }
 }
 
 function buildTDAFeatureList() {
