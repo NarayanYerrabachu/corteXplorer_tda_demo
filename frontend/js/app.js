@@ -145,26 +145,30 @@ function initSearch() {
 // ── Report buttons ────────────────────────────────────────────────────────────
 
 function initReportButtons() {
+  // Opens the properly styled HTML report in a new tab
   const btn = document.getElementById('btn-report');
-  if (btn) btn.onclick = async () => {
-    try {
-      const data = await fetch(`${API}/api/report`).then(r => r.json());
-      const win  = window.open('', '_blank');
-      win.document.write(`<pre style="background:#13151A;color:#D9DCE3;padding:24px;font-family:monospace;font-size:12px;line-height:1.6">${data.report}</pre>`);
-      win.document.close();
-    } catch (e) { toast('Report unavailable'); }
-  };
+  if (btn) btn.onclick = () => window.open(`${API}/report/html`, '_blank');
 
   const ai = document.getElementById('btn-ai-report');
   if (ai) ai.onclick = async () => {
     toast('Generating AI report…');
     try {
       const data = await fetch(`${API}/api/report/ai`).then(r => r.json());
-      const content = data.report +
-        (data.ai_section ? '\n\n── AI INSIGHTS ──\n' + data.ai_section : '\n\n' + (data.ai_note || ''));
-      const win = window.open('', '_blank');
-      win.document.write(`<pre style="background:#13151A;color:#D9DCE3;padding:24px;font-family:monospace;font-size:12px;line-height:1.6">${content}</pre>`);
-      win.document.close();
+      // Open styled HTML report first, then show AI note
+      const win = window.open(`${API}/report/html`, '_blank');
+      if (data.ai_section) {
+        // Append AI section after the HTML report loads
+        setTimeout(() => {
+          try {
+            const div = win.document.createElement('div');
+            div.style.cssText = 'background:#1A1D24;border:1px solid #9B7FD4;border-radius:4px;padding:20px;margin:20px 0;font-size:13px;line-height:1.7;color:#D9DCE3;';
+            div.innerHTML = `<div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:#9B7FD4;margin-bottom:12px;font-family:\'IBM Plex Mono\',monospace">AI INSIGHTS — INTERPRETATION ONLY</div>`
+              + data.ai_section.replace(/\n/g,'<br>')
+              + `<div style="margin-top:10px;font-size:10px;color:#59616E;font-family:\'IBM Plex Mono\',monospace">${data.ai_note||''}</div>`;
+            win.document.body.appendChild(div);
+          } catch(e) {}
+        }, 1200);
+      }
     } catch (e) { toast('AI report unavailable'); }
   };
 }

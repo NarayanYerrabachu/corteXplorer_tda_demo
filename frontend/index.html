@@ -114,15 +114,25 @@ nav{
 }
 .find:hover{background:var(--panel2)}
 .find[aria-selected=true]{background:var(--panel2)}
-.find.k-anomaly[aria-selected=true]{border-left-color:var(--signal)}
-.find.k-suspicious[aria-selected=true]{border-left-color:var(--danger)}
+.find.k-anomaly{border-left-color:rgba(224,163,62,.5)}
+.find.k-anomaly[aria-selected=true]{border-left-color:var(--signal);background:var(--panel2)}
+.find.k-anomaly .title{color:var(--signal)}
+.find.k-suspicious{border-left-color:rgba(224,82,82,.5)}
+.find.k-suspicious[aria-selected=true]{border-left-color:var(--danger);background:var(--panel2)}
 .find.k-suspicious .title{color:var(--danger)}
 .find.k-relationship[aria-selected=true]{border-left-color:var(--relate)}
 .find.k-theme[aria-selected=true]{border-left-color:var(--theme)}
-.find.k-topology[aria-selected=true]{border-left-color:var(--tda)}
+.find.k-topology{border-left-color:rgba(155,127,212,.4)}
+.find.k-topology[aria-selected=true]{border-left-color:var(--tda);background:var(--panel2)}
 .find.k-topology .title{color:var(--tda)}
-.find.k-drift[aria-selected=true]{border-left-color:var(--drift)}
+.find.k-drift{border-left-color:rgba(78,168,222,.4)}
+.find.k-drift[aria-selected=true]{border-left-color:var(--drift);background:var(--panel2)}
 .find.k-drift .title{color:var(--drift)}
+.find.k-relationship{border-left-color:rgba(94,156,166,.4)}
+.find.k-relationship[aria-selected=true]{border-left-color:var(--relate);background:var(--panel2)}
+.find.k-relationship .title{color:var(--relate)}
+.find.k-theme{border-left-color:rgba(169,180,196,.3)}
+.find.k-theme[aria-selected=true]{border-left-color:var(--theme);background:var(--panel2)}
 .find .ft{display:flex;align-items:center;gap:8px;justify-content:space-between}
 .find .title{font-weight:500;font-size:13.5px;word-break:break-word}
 .find .meta{font-size:11px;color:var(--mute);margin-top:4px;font-family:'IBM Plex Mono',monospace}
@@ -344,9 +354,6 @@ nav{
   </section>
 </div><!-- .work -->
 
-</div><!-- .app -->
-
-
 <!-- ── TDA Explorer view (full area, shown instead of .work) ─────────────── -->
 <div id="view-tda-explorer" style="display:none;flex:1;min-height:0;background:var(--ink)">
   <div style="display:grid;grid-template-columns:220px 1fr 1.4fr;height:100%;min-height:0">
@@ -422,6 +429,8 @@ nav{
     </div>
   </div>
 </div>
+
+</div><!-- .app -->
 
 
 <!-- ── Chat overlay ───────────────────────────────────────────────────────── -->
