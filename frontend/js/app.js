@@ -209,6 +209,141 @@ async function summarizeDataset() {
   }
 }
 
+// ── Temporal Homology chart (D3 dual line) ────────────────────────────────────
+
+async function buildTemporalChart() {
+  const svg = document.getElementById('fsv-temporal-chart');
+  if (!svg || typeof d3 === 'undefined') return;
+
+  let data;
+  try {
+    data = await fetch(`${API}/api/tda/temporal`).then(r => r.json());
+  } catch(e) { return; }
+
+  const rows      = data.years || [];
+  const driftYear = data.drift_year;
+  if (rows.length < 2) {
+    d3.select(svg).append('text').attr('x','50%').attr('y','50%')
+      .attr('fill','#59616E').attr('font-size',12).attr('text-anchor','middle')
+      .attr('dominant-baseline','middle').text('Insufficient yearly data');
+    return;
+  }
+
+  const W = svg.getBoundingClientRect().width || 580;
+  const H = 220;
+  const M = { top: 14, right: 52, bottom: 40, left: 46 };
+  const iW = W - M.left - M.right;
+  const iH = H - M.top  - M.bottom;
+
+  svg.setAttribute('width',  W);
+  svg.setAttribute('height', H);
+  d3.select(svg).selectAll('*').remove();
+  const root = d3.select(svg).append('g').attr('transform', `translate(${M.left},${M.top})`);
+
+  const xSc = d3.scaleLinear()
+    .domain(d3.extent(rows, d => d.year))
+    .range([0, iW]);
+
+  const yWass = d3.scaleLinear()
+    .domain([0, d3.max(rows, d => d.wasserstein_norm) * 1.15 || 1])
+    .range([iH, 0]);
+
+  const yOvr = d3.scaleLinear()
+    .domain([0, d3.max(rows, d => d.avg_overrun_pct) * 1.15 || 1])
+    .range([iH, 0]);
+
+  // Grid
+  root.append('g')
+    .call(d3.axisLeft(yWass).ticks(4).tickSize(-iW).tickFormat(''))
+    .selectAll('line').attr('stroke','#2A2F3A').attr('stroke-dasharray','3,3');
+  root.select('.domain').remove();
+
+  // Axes
+  root.append('g').attr('transform', `translate(0,${iH})`)
+    .call(d3.axisBottom(xSc).ticks(rows.length).tickFormat(d3.format('d')))
+    .selectAll('text').attr('fill','#59616E').attr('font-size', 9)
+    .attr('font-family','IBM Plex Mono,monospace')
+    .attr('transform','rotate(-40)').attr('text-anchor','end');
+  root.selectAll('.domain,.tick line').attr('stroke','#2A2F3A');
+
+  root.append('g')
+    .call(d3.axisLeft(yWass).ticks(4).tickFormat(d3.format('.2f')))
+    .selectAll('text,path,line').attr('stroke','#4EA8DE').attr('fill','#4EA8DE').attr('font-size',9);
+
+  root.append('g').attr('transform', `translate(${iW},0)`)
+    .call(d3.axisRight(yOvr).ticks(4).tickFormat(d => `${(d*100).toFixed(0)}%`))
+    .selectAll('text,path,line').attr('stroke','var(--signal)').attr('fill','var(--signal)').attr('font-size',9);
+
+  // Drift year vertical marker
+  if (driftYear) {
+    root.append('line')
+      .attr('x1', xSc(driftYear)).attr('x2', xSc(driftYear))
+      .attr('y1', 0).attr('y2', iH)
+      .attr('stroke','var(--danger)').attr('stroke-dasharray','5,4').attr('stroke-width',1.5).attr('opacity',.7);
+    root.append('text')
+      .attr('x', xSc(driftYear) + 4).attr('y', 10)
+      .attr('fill','var(--danger)').attr('font-size', 9)
+      .attr('font-family','IBM Plex Mono,monospace')
+      .text(`drift ${driftYear}`);
+  }
+
+  // Area fill under Wasserstein
+  root.append('path')
+    .datum(rows)
+    .attr('fill','rgba(78,168,222,0.08)')
+    .attr('d', d3.area()
+      .x(d => xSc(d.year))
+      .y0(iH)
+      .y1(d => yWass(d.wasserstein_norm))
+      .curve(d3.curveCatmullRom.alpha(0.5))
+    );
+
+  // Wasserstein line
+  root.append('path')
+    .datum(rows)
+    .attr('fill','none').attr('stroke','var(--drift)').attr('stroke-width', 2)
+    .attr('d', d3.line()
+      .x(d => xSc(d.year))
+      .y(d => yWass(d.wasserstein_norm))
+      .curve(d3.curveCatmullRom.alpha(0.5))
+    );
+
+  // Overrun line
+  root.append('path')
+    .datum(rows)
+    .attr('fill','none').attr('stroke','var(--signal)').attr('stroke-width', 1.8).attr('opacity',.85)
+    .attr('d', d3.line()
+      .x(d => xSc(d.year))
+      .y(d => yOvr(d.avg_overrun_pct))
+      .curve(d3.curveCatmullRom.alpha(0.5))
+    );
+
+  // Tooltip dots — Wasserstein peaks
+  const tip = d3.select('body').selectAll('#th-tip').data([0]).join('div')
+    .attr('id','th-tip')
+    .style('position','fixed').style('pointer-events','none').style('opacity',0)
+    .style('background','#20242D').style('border','1px solid #2A2F3A')
+    .style('color','#D9DCE3').style('font-size','11px').style('padding','7px 10px')
+    .style('border-radius','3px').style('font-family','IBM Plex Mono,monospace')
+    .style('z-index','999').style('line-height','1.6');
+
+  root.selectAll('.dot-th').data(rows).join('circle')
+    .attr('class','dot-th')
+    .attr('cx', d => xSc(d.year)).attr('cy', d => yWass(d.wasserstein_norm))
+    .attr('r', 3).attr('fill','var(--drift)').attr('opacity',.8)
+    .on('mousemove', (ev, d) => {
+      tip.html(
+        `<b>${d.year}</b><br>` +
+        `Wasserstein Δ: ${d.wasserstein_norm.toFixed(3)}<br>` +
+        `Avg overrun: ${(d.avg_overrun_pct*100).toFixed(1)}%<br>` +
+        `Success rate: ${(d.success_rate*100).toFixed(1)}%<br>` +
+        `Projects: ${d.n_projects}`
+      ).style('left',(ev.clientX+14)+'px').style('top',(ev.clientY-10)+'px')
+       .transition().duration(80).style('opacity',1);
+    })
+    .on('mouseleave', () => tip.transition().duration(120).style('opacity',0));
+}
+
 // ── Persistence Diagram (D3 scatter plot) ─────────────────────────────────────
 
 async function buildPersistenceDiagram() {
@@ -453,9 +588,6 @@ function buildFullSummaryView() {
     }).join('');
   }
 
-  // Persistence diagram
-  buildPersistenceDiagram();
-
   // Top signals (clickable cards)
   const sigEl = document.getElementById('fsv-top-signals');
   if (sigEl) {
@@ -630,7 +762,7 @@ function initReportButtons() {
 
 let _activeView = 'analysis';
 
-const VIEWS = ['work', 'view-tda-explorer', 'view-report', 'view-summary', 'view-gov-aid-report'];
+const VIEWS = ['work', 'view-tda-explorer', 'view-report', 'view-summary', 'view-persistence', 'view-gov-aid-report'];
 
 function showView(name) {
   _activeView = name;
@@ -668,9 +800,14 @@ function showView(name) {
     const el = document.getElementById('view-summary');
     if (el) el.style.display = 'flex';
     buildFullSummaryView();
-    // Auto-generate the dataset description on first open
     const aiEl = document.getElementById('fsv-ai-content');
     if (aiEl && !aiEl.dataset.loaded) fsvSummarizeDataset();
+
+  } else if (name === 'persistence') {
+    const el = document.getElementById('view-persistence');
+    if (el) el.style.display = 'flex';
+    buildPersistenceDiagram();
+    buildTemporalChart();
 
   } else {
     // analysis (default)
@@ -683,6 +820,7 @@ function showView(name) {
     'tda-explorer': 'btn-explorer',
     'report':       'btn-report',
     'summary':      'btn-summary',
+    'persistence':  'btn-persistence',
     'analysis':     null,
   };
   const btnId = navMap[name];

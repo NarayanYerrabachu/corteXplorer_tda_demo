@@ -272,6 +272,7 @@ nav{
   <button class="navbtn accent" id="btn-interrogate">› interrogate</button>
   <button class="navbtn" id="btn-report">report</button>
   <button class="navbtn" id="btn-summary" onclick="showView('summary')">Summary</button>
+  <button class="navbtn" id="btn-persistence" onclick="showView('persistence')" style="color:var(--tda)">Persistence</button>
   <button class="navbtn accent" id="btn-ai-report">AI report</button>
   <button class="navbtn" id="btn-chat-open">chat ↗</button>
   <button class="navbtn" onclick="showView('gov-aid-report')" style="color:var(--drift);border-left:1px solid var(--line);margin-left:8px;padding-left:16px">Gov Aid Report</button>
@@ -505,21 +506,6 @@ nav{
         <div id="fsv-h1-loops" style="font-size:12px;color:var(--mute);font-family:'IBM Plex Mono',monospace;line-height:1.8"></div>
       </div>
 
-      <!-- Persistence Diagram -->
-      <div style="background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:16px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-family:'IBM Plex Mono',monospace">PERSISTENCE DIAGRAM</div>
-          <div style="display:flex;gap:12px;font-size:10px;font-family:'IBM Plex Mono',monospace">
-            <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--relate);margin-right:4px"></span>H₀ components</span>
-            <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--signal);margin-right:4px"></span>H₁ loops</span>
-          </div>
-        </div>
-        <svg id="fsv-persistence-diagram" style="width:100%;display:block;background:var(--panel2);border-radius:3px"></svg>
-        <div style="font-size:10px;color:var(--faint);font-family:'IBM Plex Mono',monospace;margin-top:6px;line-height:1.6">
-          X = birth &nbsp;·&nbsp; Y = death &nbsp;·&nbsp; Distance from diagonal = persistence &nbsp;·&nbsp; Points near diagonal = noise
-        </div>
-      </div>
-
       <!-- Top Signals -->
       <div style="background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:16px">
         <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-family:'IBM Plex Mono',monospace;margin-bottom:14px">TOP SIGNALS</div>
@@ -527,6 +513,75 @@ nav{
       </div>
 
     </div>
+  </div>
+</div>
+
+
+<!-- ── Persistence Homology view ─────────────────────────────────────────── -->
+<div id="view-persistence" style="display:none;flex:1;flex-direction:column;min-height:0;background:var(--ink);overflow:hidden">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:center;gap:12px;padding:11px 20px;border-bottom:1px solid var(--line);flex:none;background:var(--panel)">
+    <button onclick="showView('analysis')" style="background:none;border:1px solid var(--line);color:var(--mute);border-radius:3px;padding:5px 12px;font-size:11px;font-family:'IBM Plex Mono',monospace;cursor:pointer">← Analysis</button>
+    <span style="font-size:11px;color:var(--tda);font-family:'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase">PERSISTENT HOMOLOGY — TOPOLOGICAL STRUCTURE & CHANGE</span>
+  </div>
+
+  <!-- Two-column body -->
+  <div style="flex:1;overflow-y:auto;padding:20px 24px;display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+
+    <!-- Left: Persistence Diagram -->
+    <div style="background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-family:'IBM Plex Mono',monospace">PERSISTENCE DIAGRAM (H₀ / H₁)</div>
+        <div style="display:flex;gap:12px;font-size:10px;font-family:'IBM Plex Mono',monospace">
+          <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--relate);margin-right:4px"></span>H₀</span>
+          <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--signal);margin-right:4px"></span>H₁</span>
+        </div>
+      </div>
+      <svg id="fsv-persistence-diagram" style="width:100%;display:block;background:var(--panel2);border-radius:3px"></svg>
+      <div style="font-size:10px;color:var(--faint);font-family:'IBM Plex Mono',monospace;margin-top:8px;line-height:1.7">
+        X = birth &nbsp;·&nbsp; Y = death &nbsp;·&nbsp; Distance from diagonal = persistence strength<br>
+        Points near diagonal = topological noise &nbsp;·&nbsp; Points far from diagonal = robust features<br>
+        H₀ = connected components &nbsp;·&nbsp; H₁ = loops/cycles &nbsp;·&nbsp; ◆ = infinite component
+      </div>
+    </div>
+
+    <!-- Right: Temporal Homology -->
+    <div style="background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-family:'IBM Plex Mono',monospace">TOPOLOGICAL CHANGE OVER TIME</div>
+        <div style="display:flex;gap:12px;font-size:10px;font-family:'IBM Plex Mono',monospace">
+          <span><span style="display:inline-block;width:18px;height:2px;background:var(--drift);margin-right:4px;vertical-align:middle"></span>Wasserstein Δ</span>
+          <span><span style="display:inline-block;width:18px;height:2px;background:var(--signal);margin-right:4px;vertical-align:middle"></span>Avg Overrun</span>
+        </div>
+      </div>
+      <svg id="fsv-temporal-chart" style="width:100%;display:block;background:var(--panel2);border-radius:3px"></svg>
+      <div style="font-size:10px;color:var(--faint);font-family:'IBM Plex Mono',monospace;margin-top:8px;line-height:1.7">
+        Wasserstein distance between consecutive year persistence diagrams<br>
+        Spikes = years where the topological structure of aid patterns changed significantly<br>
+        Dashed line = detected drift threshold year
+      </div>
+    </div>
+
+    <!-- Bottom: Betti numbers over time -->
+    <div style="background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:16px;grid-column:1/-1">
+      <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-family:'IBM Plex Mono',monospace;margin-bottom:14px">INTERPRETATION — WHAT THE TOPOLOGY TELLS US</div>
+      <div id="ph-interpretation" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;font-size:13px;line-height:1.7;color:var(--mute)">
+        <div>
+          <div style="font-size:10px;color:var(--tda);font-family:'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px">PERSISTENCE DIAGRAM</div>
+          Points far above the diagonal y=x are topologically significant features. In the H₁ cloud, clusters of orange points represent recurring structural patterns — projects sharing correlated risk factors. The denser the cloud near the diagonal, the more noise in the data.
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--drift);font-family:'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px">WASSERSTEIN DISTANCE</div>
+          Each data point is the Wasserstein distance between the persistence diagram of year <em>t</em> and year <em>t−1</em>. A spike indicates a year in which the topological structure of aid funding patterns shifted significantly — a structural break, not just a statistical fluctuation.
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--signal);font-family:'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px">CORRELATION SIGNAL</div>
+          When Wasserstein spikes coincide with changes in average cost overrun, it confirms that the topological change reflects a real shift in project risk profile — not noise. The dashed vertical line marks the year where temporal drift was detected across the full dataset.
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
