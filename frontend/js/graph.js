@@ -50,11 +50,21 @@ async function renderGraph() {
   return renderGraphForLens(typeof _currentLens !== 'undefined' ? _currentLens : 'topology');
 }
 
+// Open the Graph tab and (re)draw filling the full panel. Clears any stale explicit
+// SVG size first — the graph may have been drawn earlier while the tab was hidden
+// (parent width 0 → fallback size), which _dims would otherwise reuse.
+function openGraphTab() {
+  if (typeof switchRTab === 'function') switchRTab('graph');
+  const svg = document.getElementById('graph-svg');
+  if (svg) { svg.removeAttribute('width'); svg.removeAttribute('height'); svg.style.width = ''; svg.style.height = ''; }
+  setTimeout(() => renderGraphForLens(typeof _currentLens !== 'undefined' ? _currentLens : 'topology'), 60);
+}
+
 function updateGraphCaption(lens) {
   const el = document.getElementById('graph-caption');
   if (!el) return;
   const map = {
-    topology:      'Each dot = one mapper node &nbsp;•&nbsp; X = time (jittered) &nbsp;•&nbsp; Click to inspect',
+    topology:      'Each dot = one mapper node &nbsp;•&nbsp; X = lens filter value &nbsp;•&nbsp; Y = topology score &nbsp;•&nbsp; Click to inspect',
     relationships: 'Left = Countries &nbsp;•&nbsp; Right = DAC Sectors &nbsp;•&nbsp; Line width = co-occurrence weight',
     suspicious:    'Each dot = one suspicious project &nbsp;•&nbsp; X = overrun%, Y = anomaly score',
     anomalies:     'Each dot = one anomalous project &nbsp;•&nbsp; X = overrun%, Y = ISO Forest score',
@@ -79,8 +89,20 @@ function drawTopologyScatter(graphData, findingsData) {
 
   const mapperNodes = (graphData.mapper_nodes || []);
   const mapperEdges = (graphData.mapper_edges || []);
-  const YEAR_MIN = 2005, YEAR_MAX = 2024;
-  const totalIntervals = Math.max(...mapperNodes.map(n => n.interval || 0)) + 1 || 1;
+
+  // Active lens drives the X axis: each node sits at the mean lens value of its members.
+  const lensName    = findingsData.meta?.lens || 'pca';
+  const LENS_LABELS = {
+    pca:          'lens: PCA (PC1)',
+    umap:         'lens: UMAP',
+    density:      'lens: KDE log-density',
+    eccentricity: 'lens: eccentricity',
+    feature:      'lens: raw feature',
+  };
+  const lensVals   = mapperNodes.map(n => (typeof n.lens_mean === 'number' ? n.lens_mean : 0));
+  const lensMin    = lensVals.length ? Math.min(...lensVals) : 0;
+  const lensMax    = lensVals.length ? Math.max(...lensVals) : 1;
+  const lensJitter = (lensMax - lensMin) * 0.01;
 
   const enriched = mapperNodes.map((nd, i) => {
     const srcs     = nd.sources || [];
@@ -88,19 +110,19 @@ function drawTopologyScatter(graphData, findingsData) {
     const avgScore = scores.length ? scores.reduce((a,b)=>a+b,0)/scores.length : 0.04;
     const maxScore = scores.length ? Math.max(...scores) : 0.04;
     const fracAnom = scores.filter(s => s > 0.5).length / (scores.length || 1);
-    const intFrac  = (nd.interval || i) / Math.max(totalIntervals - 1, 1);
-    const yearX    = YEAR_MIN + intFrac * (YEAR_MAX - YEAR_MIN) + Math.sin(i * 7.3) * 0.5;
+    const lensX    = (typeof nd.lens_mean === 'number' ? nd.lens_mean : 0) + Math.sin(i * 7.3) * lensJitter;
     const topoY    = Math.min(fracAnom * 0.5 + avgScore * 0.5, 1.0);
     const state    = maxScore > 0.6 || fracAnom > 0.4 ? 'anomalous'
                    : avgScore > 0.2 || fracAnom > 0.1  ? 'warning' : 'normal';
-    return { ...nd, yearX, topoY, avgScore, maxScore, fracAnom, state,
+    return { ...nd, lensX, topoY, avgScore, maxScore, fracAnom, state,
              label: srcs[0] ? srcs[0].replace('AID-','#') : `N${i}` };
   });
 
   const stateColor  = { normal:'#4EA8DE', warning:'#E0A33E', anomalous:'#E05252' };
   const stateStroke = { normal:'#2a7db5', warning:'#b5651d', anomalous:'#8B1A1A' };
 
-  const xDomain = [YEAR_MIN - 1, YEAR_MAX + 1];
+  const lensPad = (lensMax - lensMin) * 0.05 || 0.5;
+  const xDomain = [lensMin - lensPad, lensMax + lensPad];
   const yMax    = d3.max(enriched, d => d.topoY) || 0.5;
   const yDomain = [0, Math.max(yMax * 1.25, 0.1)];
   const xScale  = d3.scaleLinear().domain(xDomain).range([0, innerW]);
@@ -127,8 +149,8 @@ function drawTopologyScatter(graphData, findingsData) {
     const s = enriched[e.source], t = enriched[e.target];
     if (!s||!t) return;
     edgeG.append('line')
-      .attr('x1',xScale(s.yearX)).attr('y1',yScale(s.topoY))
-      .attr('x2',xScale(t.yearX)).attr('y2',yScale(t.topoY))
+      .attr('x1',xScale(s.lensX)).attr('y1',yScale(s.topoY))
+      .attr('x2',xScale(t.lensX)).attr('y2',yScale(t.topoY))
       .attr('stroke','rgba(169,180,196,.2)').attr('stroke-width',1);
   });
 
@@ -136,7 +158,7 @@ function drawTopologyScatter(graphData, findingsData) {
   const tip = _tooltip();
   const nodeG = root.append('g');
   enriched.forEach((nd, i) => {
-    const cx  = xScale(nd.yearX), cy = yScale(nd.topoY);
+    const cx  = xScale(nd.lensX), cy = yScale(nd.topoY);
     const r   = rScale(nd.size || 1);
     const col = stateColor[nd.state], str = stateStroke[nd.state];
     const g   = nodeG.append('g').attr('transform',`translate(${cx},${cy})`).style('cursor','pointer');
@@ -154,13 +176,13 @@ function drawTopologyScatter(graphData, findingsData) {
     g.on('mouseover',(ev)=>{
       g.select('circle:last-of-type').attr('r',r+2).attr('stroke-width',2);
       tip.style('display','block').style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-28)+'px')
-        .html(`<b>${nd.label}</b><br>state: <span style="color:${col}">${nd.state}</span><br>score: ${nd.avgScore.toFixed(3)}<br>records: ${nd.size||0}<br>year ≈ ${Math.round(nd.yearX)}`);
+        .html(`<b>${nd.label}</b><br>state: <span style="color:${col}">${nd.state}</span><br>score: ${nd.avgScore.toFixed(3)}<br>records: ${nd.size||0}<br>${LENS_LABELS[lensName]||'lens'} ≈ ${nd.lensX.toFixed(3)}`);
     }).on('mousemove',(ev)=>tip.style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-28)+'px'))
       .on('mouseout',()=>{ g.select('circle:last-of-type').attr('r',r).attr('stroke-width',1.2); tip.style('display','none'); })
       .on('click',()=>showMapperNodeInfo(nd, stateColor));
   });
 
-  _axes(root, xScale, yScale, innerH, innerW, 'time (approval year — jittered)', 'topology score');
+  _axes(root, xScale, yScale, innerH, innerW, LENS_LABELS[lensName] || 'lens value', 'topology score');
   _legend(svg, W, H, [
     {label:'Normal States',   color:stateColor.normal},
     {label:'Warning States',  color:stateColor.warning},
@@ -219,16 +241,18 @@ function drawBipartiteGraph(relationships) {
   const maxW     = Math.max(1, ...top25.map(r => r.extra?.weight || 1));
 
   const nRows  = Math.max(leftSet.length, rightSet.length, 1);
-  const TITLE_H = 28;                              // space for title at top
-  const PAD     = 12;
-  const rowPx   = Math.max(22, Math.min(30, Math.floor((Math.max(H - TITLE_H - 40, 300)) / nRows)));
-  const SVG_H   = TITLE_H + nRows * rowPx + PAD;
+  const TITLE_H  = 28;                             // space for title at top
+  const HEADER_H = 18;                             // space for COUNTRIES / DAC SECTORS column headers
+  const PAD      = 12;
+  const rowPx   = Math.max(22, Math.min(30, Math.floor((Math.max(H - TITLE_H - HEADER_H - 40, 300)) / nRows)));
+  const SVG_H   = TITLE_H + HEADER_H + nRows * rowPx + PAD;
   const SVG_W   = Math.max(cW, 480);
   const lx = 155, rx = SVG_W - 140, cx = SVG_W / 2;
+  const HEADER_Y = TITLE_H + HEADER_H - 2;          // just above the first node row
 
   const leftPos  = {}, rightPos = {};
-  leftSet.forEach((n, i)  => { leftPos[n]  = { x: lx, y: TITLE_H + PAD + rowPx * (i + 0.5) }; });
-  rightSet.forEach((n, i) => { rightPos[n] = { x: rx, y: TITLE_H + PAD + rowPx * (i + 0.5) }; });
+  leftSet.forEach((n, i)  => { leftPos[n]  = { x: lx, y: TITLE_H + HEADER_H + PAD + rowPx * (i + 0.5) }; });
+  rightSet.forEach((n, i) => { rightPos[n] = { x: rx, y: TITLE_H + HEADER_H + PAD + rowPx * (i + 0.5) }; });
 
   // Store in globals for inline onclick handlers (DOMParser clones can't use closures)
   _bipTop25    = top25;
@@ -257,6 +281,14 @@ function drawBipartiteGraph(relationships) {
   svgStr += `<text x="${SVG_W / 2}" y="18" text-anchor="middle"
     font-size="12" font-weight="600" fill="#D9DCE3"
     font-family="'Space Grotesk',sans-serif">Relationship Graph — Country ↔ Sector</text>`;
+
+  // ── Column headers (top of each column, above the first node) ───────────────
+  svgStr += `<text x="${lx - 10}" y="${HEADER_Y}" text-anchor="end"
+    font-size="9" font-weight="600" letter-spacing="0.5" fill="var(--faint)"
+    font-family="IBM Plex Mono,monospace">COUNTRIES</text>`;
+  svgStr += `<text x="${rx + 10}" y="${HEADER_Y}" text-anchor="start"
+    font-size="9" font-weight="600" letter-spacing="0.5" fill="var(--faint)"
+    font-family="IBM Plex Mono,monospace">DAC SECTORS</text>`;
 
   // Draw arcs
   top25.forEach((rel, i) => {
@@ -311,11 +343,9 @@ function drawBipartiteGraph(relationships) {
     </g>`;
   });
 
-  // Column labels inside SVG
-  svgStr += `<text x="${lx - 10}" y="${SVG_H - 4}" text-anchor="end"
-    font-size="9" fill="var(--faint)" font-family="IBM Plex Mono,monospace">COUNTRIES</text>`;
-  svgStr += `<text x="${rx + 10}" y="${SVG_H - 4}" text-anchor="start"
-    font-size="9" fill="var(--faint)" font-family="IBM Plex Mono,monospace">DAC SECTORS</text>`;
+  // (Column labels omitted here — the caption below the graph already states
+  //  "Left = Countries · Right = DAC Sectors", and in-SVG labels overlapped the
+  //  bottom-most node.)
 
   svgStr += `</svg>`;
 
@@ -424,7 +454,7 @@ function showRelationshipAudit(a, b, rel) {
   if (typeof switchRTab === 'function') switchRTab('audit');
 }
 
-function showNodeAudit(name, type, paths, rels) {
+function showNodeAudit(name, type, rels) {
   const body = document.getElementById('audit-content'); if (!body) return;
   const connected = rels.filter(r =>
     type === 'country' ? r.extra?.a === name : r.extra?.b === name
@@ -511,11 +541,14 @@ function _drawBubbleScatter(items, dotColor, glowColor, title, xLabel) {
   const tip = _tooltip();
 
   items.forEach((d, i) => {
-    const cx  = hasOverrun ? xScale(overruns[i] || 0) + (Math.sin(i*3.7)*innerW*0.015)
-                           : xScale(`#${i+1}`);
-    const cy  = yScale(d.score || 0);
-    const r   = 5 + (d.score||0) * 7;
-    const ex  = d.extra || {};
+    const r    = 5 + (d.score||0) * 7;
+    const pad  = r + 5;   // keep the full bubble + glow inside the plot area
+    const cxRaw = hasOverrun ? xScale(overruns[i] || 0) + (Math.sin(i*3.7)*innerW*0.015)
+                             : xScale(`#${i+1}`);
+    const cyRaw = yScale(d.score || 0);
+    const cx   = Math.max(pad, Math.min(innerW - pad, cxRaw));
+    const cy   = Math.max(pad, Math.min(innerH - pad, cyRaw));
+    const ex   = d.extra || {};
 
     // Glow
     root.append('circle').attr('cx',cx).attr('cy',cy).attr('r',r+5)
@@ -635,7 +668,7 @@ function showMapperNodeInfo(nd, stateColor) {
     <div class="audit-step"><span class="step-icon">🔵</span><div class="step-body"><div class="label">State</div><div class="val" style="color:${col}">${nd.state.toUpperCase()}</div></div></div>
     <div class="audit-step"><span class="step-icon">📊</span><div class="step-body"><div class="label">Avg Score</div><div class="val">${nd.avgScore.toFixed(4)}</div></div></div>
     <div class="audit-step"><span class="step-icon">📁</span><div class="step-body"><div class="label">Records in Node</div><div class="val">${nd.size || (nd.sources||[]).length}</div></div></div>
-    <div class="audit-step"><span class="step-icon">📅</span><div class="step-body"><div class="label">Year Proxy</div><div class="val">≈ ${Math.round(nd.yearX)}</div></div></div>
+    <div class="audit-step"><span class="step-icon">🔎</span><div class="step-body"><div class="label">Lens Value</div><div class="val">${typeof nd.lens_mean === 'number' ? nd.lens_mean.toFixed(4) : '—'}</div></div></div>
     <div class="audit-step"><span class="step-icon">🗂</span><div class="step-body"><div class="label">Sample Project IDs</div><div class="val">${(nd.sources||[]).slice(0,5).join(', ')||'—'}</div></div></div>
     <div class="audit-verified">✓ TRACEABLE — Mapper interval ${nd.interval||0}</div>`;
   if (typeof switchRTab === 'function') switchRTab('audit');
@@ -695,13 +728,16 @@ function _axes(root, xScale, yScale, innerH, innerW, xLabel, yLabel) {
 }
 
 function _legend(svg, W, H, items) {
-  const g = svg.append('g').attr('transform',`translate(50,${H-14})`);
+  // Top-right, so it never collides with the x-axis label in the bottom band.
+  const widths = items.map(({label}) => label.length * 5.5 + 22);
+  const total  = widths.reduce((a, b) => a + b, 0);
+  const g = svg.append('g').attr('transform', `translate(${Math.max(60, W - total - 16)},16)`);
   let lx = 0;
-  items.forEach(({label, color}) => {
+  items.forEach(({label, color}, k) => {
     g.append('circle').attr('cx',lx+5).attr('cy',0).attr('r',5).attr('fill',color).attr('fill-opacity',.85);
     g.append('text').attr('x',lx+13).attr('y',4).attr('fill','#878E9C').attr('font-size',9)
       .attr('font-family',"'Space Grotesk',sans-serif").text(label);
-    lx += label.length * 5.5 + 18;
+    lx += widths[k];
   });
 }
 

@@ -265,7 +265,7 @@ nav{
 
 <!-- ── Nav ─────────────────────────────────────────────────────────────────── -->
 <nav>
-  <button class="navbtn active" data-nav="analysis">Analysis</button>
+  <button class="navbtn active" data-nav="analysis" onclick="showView('analysis')">Analysis</button>
   <button class="navbtn" onclick="window.location='/dashboard'">Dashboard</button>
   <button class="navbtn" onclick="window.location='/chat'">Chat</button>
   <button class="navbtn" id="btn-explorer" data-nav="explorer">TDA Explorer</button>
@@ -324,7 +324,7 @@ nav{
   <!-- Right panel: Graph / Audit Trail / Summarize -->
   <section class="source">
     <div class="rtabs">
-      <button class="rtab active" onclick="switchRTab('graph');setTimeout(()=>renderGraphForLens(typeof _currentLens!=='undefined'?_currentLens:'topology'),60)">Graph</button>
+      <button class="rtab active" onclick="openGraphTab()">Graph</button>
       <button class="rtab" onclick="switchRTab('audit')">Audit Trail</button>
       <button class="rtab" onclick="switchRTab('summarize')">Summarize</button>
     </div>
@@ -334,7 +334,7 @@ nav{
       <svg id="graph-svg" style="width:100%;display:block;flex:1;min-height:300px"></svg>
       <div id="graph-html-layer" style="flex:0;min-height:0;overflow:auto;width:100%"></div>
       <div id="graph-caption" style="margin-top:8px;font-size:10.5px;color:var(--faint);font-family:'IBM Plex Mono',monospace;line-height:1.6">
-        Each dot = one mapper node &nbsp;•&nbsp; X-axis = time (jittered)<br>Click a node to view details &amp; contributing records
+        Each dot = one mapper node &nbsp;•&nbsp; X-axis = lens filter value<br>Click a node to view details &amp; contributing records
       </div>
     </div>
 
@@ -347,10 +347,9 @@ nav{
 
     <!-- Summarize tab -->
     <div class="rtab-content" id="tab-summarize" style="display:none">
-      <button class="sum-btn" onclick="summarize('overview')">Overview Summary</button>
-      <button class="sum-btn" id="btn-sum-selected" onclick="summarize('selected')" disabled>Summarize Selected</button>
+      <button class="sum-btn" onclick="summarize('overview')">Summarize This Lens</button>
       <div id="summarize-content" class="sum-text" style="margin-top:12px;color:var(--mute)">
-        Click "Overview Summary" for a dataset overview,<br>or select a finding first.
+        Click "Summarize This Lens" for an AI-written analysis of the active lens.
       </div>
     </div>
   </section>
@@ -373,7 +372,7 @@ nav{
 
       <div style="margin-bottom:16px">
         <label style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);display:block;margin-bottom:6px">Lens Function</label>
-        <select id="tda-lens" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:3px;padding:7px 10px;font-size:12px;font-family:inherit">
+        <select id="tda-lens" onchange="runTDA()" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:3px;padding:7px 10px;font-size:12px;font-family:inherit">
           <option value="pca">PCA (Principal Component 1)</option>
           <option value="umap">UMAP (Dimensionality Reduction)</option>
           <option value="density">Density (Kernel Density)</option>
@@ -425,7 +424,7 @@ nav{
       <div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);flex:none">TOPOLOGY GRAPH (MAPPER)</div>
       <svg id="tda-explorer-graph" style="flex:1;min-height:300px;background:var(--panel);border-radius:4px;display:block;overflow:visible"></svg>
       <div style="font-size:10px;color:var(--faint);font-family:'IBM Plex Mono',monospace;line-height:1.6">
-        Each dot = one mapper node &nbsp;•&nbsp; X = time (jittered) &nbsp;•&nbsp; Color = anomaly state<br>
+        Each dot = one mapper node &nbsp;•&nbsp; X = lens filter value &nbsp;•&nbsp; Color = anomaly state<br>
         Edges = topological adjacency &nbsp;•&nbsp; Click node for details
       </div>
     </div>
@@ -441,9 +440,9 @@ nav{
     <button id="btn-report-ai-inline" style="margin-left:auto;background:none;border:1px solid rgba(155,127,212,.4);color:var(--tda);border-radius:3px;padding:5px 12px;font-size:11px;font-family:'IBM Plex Mono',monospace;cursor:pointer">+ AI Insights</button>
     <button onclick="window.print()" style="background:none;border:1px solid var(--line);color:var(--mute);border-radius:3px;padding:5px 12px;font-size:11px;font-family:'IBM Plex Mono',monospace;cursor:pointer">⎙ Print</button>
   </div>
-  <div style="flex:1;overflow-y:auto;padding:24px 32px">
-    <pre id="report-content" style="font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:1.7;color:#D9DCE3;white-space:pre-wrap;word-break:break-word;background:none;border:none;margin:0">Loading report…</pre>
-    <div id="report-ai-section" style="display:none;margin-top:24px;background:var(--panel);border:1px solid rgba(155,127,212,.4);border-radius:4px;padding:20px">
+  <div style="flex:1;overflow-y:auto;padding:24px 32px;display:flex;gap:28px;align-items:flex-start">
+    <pre id="report-content" style="font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:1.7;color:#D9DCE3;white-space:pre-wrap;word-break:break-word;background:none;border:none;margin:0;flex:0 0 auto">Loading report…</pre>
+    <div id="report-ai-section" style="display:none;flex:1;min-width:0;position:sticky;top:0;background:var(--panel);border:1px solid rgba(155,127,212,.4);border-radius:4px;padding:20px">
       <div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--tda);margin-bottom:12px;font-family:'IBM Plex Mono',monospace">AI INSIGHTS — INTERPRETATION ONLY · NOT RAW FACTS</div>
       <div id="report-ai-text" style="font-size:13px;line-height:1.7;color:var(--mute)"></div>
     </div>
@@ -513,13 +512,13 @@ nav{
 <div class="toast" id="toast"></div>
 
 <!-- JS loaded from js/ folder -->
-<script src="js/config.js"></script>
-<script src="js/utils.js"></script>
-<script src="js/findings.js"></script>
-<script src="js/graph.js"></script>
-<script src="js/audit.js"></script>
-<script src="js/tda_explorer.js"></script>
-<script src="js/chat.js"></script>
-<script src="js/app.js"></script>
+<script src="js/config.js?v=4"></script>
+<script src="js/utils.js?v=4"></script>
+<script src="js/findings.js?v=4"></script>
+<script src="js/graph.js?v=4"></script>
+<script src="js/audit.js?v=4"></script>
+<script src="js/tda_explorer.js?v=4"></script>
+<script src="js/chat.js?v=4"></script>
+<script src="js/app.js?v=4"></script>
 </body>
 </html>

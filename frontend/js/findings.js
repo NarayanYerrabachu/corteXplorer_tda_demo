@@ -53,6 +53,11 @@ function renderFindings(lens) {
       if (pid) loadAudit(pid);
     });
   });
+
+  // Auto-select the first finding so it's highlighted and its Audit Trail is
+  // loaded immediately (on initial load and whenever the lens changes).
+  const firstEl = list.querySelector('.find');
+  if (firstEl && items[0]) selectFinding(items[0], firstEl);
 }
 
 // Distinct color per finding kind

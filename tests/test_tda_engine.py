@@ -313,3 +313,43 @@ def test_run_full_pipeline_empty_features(sample_df):
     df = clean_dataframe(sample_df)
     result = run_full_pipeline(df, ["nonexistent_col_1", "nonexistent_col_2"])
     assert "error" in result
+
+
+def test_mapper_nodes_expose_lens_mean(clean_sample):
+    """Each Mapper node must carry its members' mean lens value (drives the X axis)."""
+    df, tda_cols = clean_sample
+    result = run_full_pipeline(df, tda_cols, lens_name="pca")
+    nodes  = result["graph"]["mapper_nodes"]
+    assert nodes, "expected at least one mapper node"
+    assert all("lens_mean" in n and isinstance(n["lens_mean"], float) for n in nodes)
+
+
+def test_lens_choice_changes_mapper_layout(clean_sample):
+    """Switching the lens function must produce a different Mapper node layout."""
+    df, tda_cols = clean_sample
+    pca_means = sorted(
+        n["lens_mean"] for n in run_full_pipeline(df, tda_cols, lens_name="pca")["graph"]["mapper_nodes"]
+    )
+    ecc_means = sorted(
+        n["lens_mean"] for n in run_full_pipeline(df, tda_cols, lens_name="eccentricity")["graph"]["mapper_nodes"]
+    )
+    assert pca_means != ecc_means
+
+
+def test_lens_change_reuses_cached_base(clean_sample):
+    """A second run with the same features but a new lens reuses the cached base."""
+    from backend.tda.engine import clear_base_cache
+    clear_base_cache()
+    df, tda_cols = clean_sample
+
+    first  = run_full_pipeline(df, tda_cols, lens_name="pca")
+    second = run_full_pipeline(df, tda_cols, lens_name="eccentricity")
+
+    # First run computes the base; second reuses it.
+    assert first["meta"]["cached_base"] is False
+    assert second["meta"]["cached_base"] is True
+    # Lens-independent findings are identical across the two lenses (came from cache)...
+    assert first["anomalies"] == second["anomalies"]
+    assert first["combined_scores"] == second["combined_scores"]
+    # ...but the lens-dependent projection differs.
+    assert first["lens_values"] != second["lens_values"]

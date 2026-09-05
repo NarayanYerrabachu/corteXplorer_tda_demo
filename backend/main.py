@@ -54,6 +54,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def _no_cache_frontend(request, call_next):
+    """Stop the browser from serving stale HTML/JS/CSS after code changes."""
+    resp = await call_next(request)
+    path = request.url.path
+    if path.endswith((".js", ".css", ".html")) or path in ("/", "/dashboard", "/chat"):
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"]        = "no-cache"
+        resp.headers["Expires"]       = "0"
+    return resp
+
 # ── Global state (built once at startup) ─────────────────────────────────────
 _lock   = threading.Lock()
 _state: dict[str, Any] = {}
@@ -128,7 +140,13 @@ def index():
     p = _FRONTEND / "index.html"
     if not p.exists():
         raise HTTPException(404, "frontend/index.html not found")
-    return p.read_text(encoding="utf-8")
+    html = p.read_text(encoding="utf-8")
+    # Per-load cache-bust: give every <script src="js/*.js?v=..."> a unique token
+    # each page load so the browser can never serve a stale cached script.
+    import re
+    token = str(int(time.time() * 1000))
+    html = re.sub(r'(\.js)\?v=[^"\']*', r'\1?v=' + token, html)
+    return html
 
 @app.get("/index.html", response_class=HTMLResponse)
 def index_html():
@@ -589,9 +607,103 @@ def run_query(req: QueryRequest):
 # ── Summarize ─────────────────────────────────────────────────────────────────
 
 class SummarizeRequest(BaseModel):
-    kind:    str           # "cluster" | "anomaly" | "record" | "overview"
+    kind:    str           # "lens" | "cluster" | "anomaly" | "record" | "overview"
     id:      Optional[str] = None
+    lens:    Optional[str] = None   # for kind == "lens": suspicious|anomalies|topology|drift|relationships|clusters
     sources: Optional[list[str]] = None
+
+
+# ── Lens summaries (Agentic AI) ─────────────────────────────────────────────────
+
+# Which pipeline finding list backs each Analysis lens.
+_LENS_FINDING_KEY = {
+    "suspicious":    "suspicious",
+    "anomalies":     "anomalies",
+    "topology":      "topology",
+    "drift":         "drift",
+    "relationships": "relationships",
+    "clusters":      "themes",
+}
+
+# What each lens represents (fed to the model so its narrative is accurate).
+_LENS_MEANING = {
+    "suspicious":    "rule-flagged high-risk projects (extreme cost overrun, failed projects, low CPI, unusual budgets) combined with the anomaly score",
+    "anomalies":     "statistical outliers scored by Isolation Forest plus a topological distance-from-cluster-centroid measure",
+    "topology":      "persistent H1 loops from persistent homology — recurring/cyclic structural patterns, ranked by persistence (death - birth)",
+    "drift":         "temporal drift: how key metrics (cost overrun, CPI score, project success rate) shift between earlier and later years",
+    "relationships": "country-to-sector co-occurrence relationships among cost-overrun projects",
+    "clusters":      "DBSCAN clusters (themes) that group structurally similar aid projects",
+}
+
+
+def _lens_context(lens_name: str) -> str:
+    """Build a compact, factual data context for the given lens from the pipeline state."""
+    p     = _state.get("pipeline", {})
+    stats = _state.get("stats", {})
+    meta  = p.get("meta", {})
+    tda   = meta.get("tda", {})
+    key   = _LENS_FINDING_KEY.get(lens_name)
+    items = p.get(key, []) if key else []
+
+    lines = [
+        f"Dataset: {stats.get('total_records', 0):,} aid projects across "
+        f"{stats.get('countries', 0)} countries and {stats.get('sectors', 0)} DAC sectors, "
+        f"years {stats.get('year_range', '[?]')}.",
+        f"Overall: success rate {stats.get('success_rate', 0):.1f}%, "
+        f"average cost overrun {stats.get('avg_overrun_pct', 0):.1f}%, "
+        f"average CPI {stats.get('avg_cpi', 0):.1f}, "
+        f"average evaluation lag {stats.get('avg_eval_lag', 0):.0f} days.",
+        f"TDA totals: {meta.get('n_clusters', 0)} clusters, {meta.get('n_anomalies', 0)} anomalies, "
+        f"{meta.get('n_suspicious', 0)} suspicious, {meta.get('n_relationships', 0)} relationships, "
+        f"{meta.get('n_drift', 0)} drift signals, β1={tda.get('betti_1', 0)} loops "
+        f"(max persistence {tda.get('max_persistence', 0):.4f}).",
+        f"\n{lens_name.upper()} lens — {len(items)} findings. Top findings:",
+    ]
+    for it in items[:15]:
+        lines.append(f"- [score {it.get('score', 0):.3f}] {it.get('title', '')} — {it.get('detail', '')}")
+    return "\n".join(lines)
+
+
+def _summarize_lens(lens_name: str) -> dict[str, Any]:
+    """Produce a >=3 paragraph summary of a lens's findings via the AI, with a templated fallback."""
+    lens_name = (lens_name or "").lower()
+    if lens_name not in _LENS_FINDING_KEY:
+        raise HTTPException(400, f"Unknown lens '{lens_name}'")
+
+    context = _lens_context(lens_name)
+    meaning = _LENS_MEANING.get(lens_name, "analysis findings")
+    _OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
+
+    if not _OPENAI_KEY:
+        return {"summary": context, "kind": "lens", "lens": lens_name, "ai": False,
+                "note": "Set OPENAI_API_KEY in .env for an AI-written summary."}
+
+    try:
+        import openai
+        client = openai.OpenAI(api_key=_OPENAI_KEY)
+        prompt = (
+            f"You are CorteXplorer's analyst writing for a government aid oversight committee. "
+            f"The '{lens_name}' lens surfaces {meaning}. "
+            f"Write a clear, professional summary of AT LEAST THREE paragraphs, based ONLY on the data below "
+            f"(never invent numbers or projects). Structure it as:\n"
+            f"Paragraph 1 — Overview: what this lens found across the dataset (counts, ranges, notable magnitudes).\n"
+            f"Paragraph 2 — Key findings: the most important specific results and patterns, naming concrete "
+            f"projects, countries, sectors, clusters or loops from the data.\n"
+            f"Paragraph 3 — Interpretation & recommended actions for the oversight committee.\n"
+            f"Use **bold** for key terms. Be specific and grounded in the figures provided.\n\n"
+            f"DATA:\n{context}"
+        )
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=800,
+        )
+        return {"summary": resp.choices[0].message.content, "kind": "lens",
+                "lens": lens_name, "ai": True}
+    except Exception as exc:
+        log.error("Lens summary failed: %s", exc)
+        return {"summary": context, "kind": "lens", "lens": lens_name, "ai": False,
+                "note": f"AI summary failed: {exc}"}
 
 
 @app.post("/api/summarize")
@@ -601,6 +713,9 @@ def summarize(req: SummarizeRequest):
     stats   = _state.get("stats", {})
     rm      = _state.get("record_map", {})
     df      = _state.get("df")
+
+    if req.kind == "lens":
+        return _summarize_lens(req.lens or "anomalies")
 
     if req.kind == "overview":
         meta = p.get("meta", {})

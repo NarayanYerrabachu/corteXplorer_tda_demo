@@ -11,6 +11,9 @@ function buildFeatureChecks(cols) {
     </label>`).join('');
 }
 
+// Monotonic run token: a stale/slow response must never overwrite a newer run's result.
+let _tdaRunSeq = 0;
+
 async function runTDA() {
   const lens        = document.getElementById('tda-lens')?.value        || 'pca';
   const n_intervals = parseInt(document.getElementById('tda-intervals')?.value  || '15');
@@ -20,7 +23,12 @@ async function runTDA() {
   const checkedNew  = [...document.querySelectorAll('#tda-feat-list input:checked')].map(i => i.value);
   const features    = checkedNew.length ? checkedNew : checkedOld;
 
-  if (typeof toast === 'function') toast('Running TDA pipeline…');
+  const mySeq   = ++_tdaRunSeq;             // claim latest-run ownership
+  const lensSel = document.getElementById('tda-lens');
+  const runBtn  = document.getElementById('btn-run-tda') || document.querySelector('[onclick*="runTDA"]');
+  if (lensSel) lensSel.disabled = true;     // block overlapping runs from the dropdown
+  if (runBtn)  runBtn.disabled  = true;
+  if (typeof toast === 'function') toast(`Running TDA (${lens})…`);
 
   try {
     const result = await fetch(`${API}/api/tda/run`, {
@@ -28,6 +36,7 @@ async function runTDA() {
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ lens, n_intervals, overlap, features }),
     }).then(r => r.json());
+    if (mySeq !== _tdaRunSeq) return;       // a newer run superseded us — drop this result
 
     const tda = result.meta?.tda || {};
     setEl('tda-betti0', tda.betti_0 ?? 1);
@@ -37,12 +46,18 @@ async function runTDA() {
 
     // Refresh findings, graph data, and redraw
     const fresh = await fetch(`${API}/api/findings`).then(r => r.json());
+    if (mySeq !== _tdaRunSeq) return;
     if (typeof _findings     !== 'undefined') Object.assign(_findings, fresh);
     if (typeof _graphData    !== 'undefined') { _graphData = null; _findingsData = null; }
     if (typeof renderFindings       === 'function') renderFindings(_currentLens || 'anomalies');
     if (typeof drawTDAExplorerGraph === 'function') drawTDAExplorerGraph();
-    if (typeof toast                === 'function') toast('TDA complete ✓');
+    if (typeof toast                === 'function') toast(`TDA complete ✓ (${lens})`);
   } catch (e) {
-    if (typeof toast === 'function') toast('TDA run failed: ' + e.message);
+    if (mySeq === _tdaRunSeq && typeof toast === 'function') toast('TDA run failed: ' + e.message);
+  } finally {
+    if (mySeq === _tdaRunSeq) {             // only re-enable once the latest run settles
+      if (lensSel) lensSel.disabled = false;
+      if (runBtn)  runBtn.disabled  = false;
+    }
   }
 }

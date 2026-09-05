@@ -155,6 +155,7 @@ def build_mapper_graph(
             "sources": node_ids[:20],
             "interval": nd.get("interval", 0),
             "cluster":  nd.get("cluster", 0),
+            "lens_mean": float(lens_values[members].mean()) if members else 0.0,
         })
 
     return {"nodes": graph_nodes, "edges": mapper_edges}
@@ -579,27 +580,23 @@ def build_suspicious_findings(
 
 # ── Main pipeline ─────────────────────────────────────────────────────────────
 
-def run_full_pipeline(
-    df: pd.DataFrame,
-    tda_feature_cols: list[str],
-    lens_name: str = "pca",
-    n_intervals: int = 10,
-    overlap: float = 0.5,
-) -> dict[str, Any]:
-    """
-    Complete TDA pipeline for Government Aid data.
-    Returns a findings dict compatible with the CorteXplorer frontend API contract.
-    """
-    t0 = time.time()
+# Cache of lens-INDEPENDENT pipeline results, keyed by (feature set, row count).
+# The lens only feeds build_mapper_graph, so everything else is computed once and
+# reused across lens changes — turning a ~40s re-run into a sub-second Mapper rebuild.
+_BASE_CACHE: dict[tuple, dict[str, Any]] = {}
 
-    from backend.data.gov_aid_schema import (
-        ID_COL, COUNTRY_COL, DAC_MAPPING
-    )
 
-    # ── Feature matrix ────────────────────────────────────────────────────────
-    feat_cols = [c for c in tda_feature_cols if c in df.columns]
-    if not feat_cols:
-        return {"error": "No TDA feature columns available in DataFrame."}
+def clear_base_cache() -> None:
+    """Drop cached base results. Call when the underlying dataset changes."""
+    _BASE_CACHE.clear()
+
+
+def _compute_base(df: pd.DataFrame, feat_cols: list[str]) -> dict[str, Any]:
+    """
+    Compute every lens-INDEPENDENT part of the pipeline: normalisation, persistent
+    homology, clustering, anomalies, suspicious, relationships, drift, topology.
+    """
+    from backend.data.gov_aid_schema import ID_COL, COUNTRY_COL, DAC_MAPPING
 
     X_raw  = df[feat_cols].values.astype(float)
     X_norm = _normalize(X_raw)
@@ -607,43 +604,17 @@ def run_full_pipeline(
     record_ids = df[ID_COL].astype(str).tolist() if ID_COL in df.columns else [str(i) for i in range(len(df))]
     cat_cols   = [c for c in [COUNTRY_COL, DAC_MAPPING] if c in df.columns]
 
-    # ── Lens ─────────────────────────────────────────────────────────────────
-    from backend.tda.lenses import get_lens
-    lens       = get_lens(lens_name)
-    lens_vals  = lens.fit_transform(X_norm)
-
-    # ── Persistent homology ───────────────────────────────────────────────────
     tda_info   = compute_persistent_homology(X_norm)
-
-    # ── Clustering ────────────────────────────────────────────────────────────
     cluster_labels, themes = compute_clusters(X_norm, df, record_ids, cat_cols)
-
-    # ── Anomaly detection ─────────────────────────────────────────────────────
     anomalies, combined_scores = detect_anomalies(
         X_norm, df, record_ids, cluster_labels, feat_cols, cat_cols
     )
-
-    # Attach scores back to records for suspicious engine
-    for i, pid in enumerate(record_ids):
-        pass  # scores already in anomaly findings
-
-    # ── Suspicious ────────────────────────────────────────────────────────────
     suspicious = build_suspicious_findings(df, combined_scores, record_ids)
-
-    # ── Relationships ─────────────────────────────────────────────────────────
     relationships, graph_nodes, graph_edges = compute_relationships(
         df, record_ids, cluster_labels, X_norm
     )
-
-    # ── Drift ─────────────────────────────────────────────────────────────────
     drift = compute_drift(df, X_norm, cluster_labels)
 
-    # ── Mapper graph ──────────────────────────────────────────────────────────
-    mapper = build_mapper_graph(X_norm, lens_vals,
-                                max(n_intervals, 15), max(overlap, 0.4),
-                                cluster_labels, record_ids)
-
-    # ── Topology findings (H1 loops) ──────────────────────────────────────────
     topology_findings = []
     for lp in tda_info.get("h1_features", []):
         topology_findings.append({
@@ -658,52 +629,109 @@ def run_full_pipeline(
             "extra": lp,
         })
 
-    # ── Meta ──────────────────────────────────────────────────────────────────
-    n_docs      = len(df)
-    n_clusters  = len(set(cluster_labels)) - (1 if -1 in cluster_labels else 0)
-    n_noise     = int((cluster_labels == -1).sum())
-    elapsed     = round(time.time() - t0, 2)
+    return {
+        "X_norm":          X_norm,
+        "record_ids":      record_ids,
+        "cluster_labels":  cluster_labels,
+        "combined_scores": combined_scores,
+        "feat_cols":       feat_cols,
+        "cat_cols":        cat_cols,
+        "themes":          themes,
+        "anomalies":       anomalies,
+        "suspicious":      suspicious,
+        "relationships":   relationships,
+        "drift":           drift,
+        "topology":        topology_findings,
+        "graph_nodes":     graph_nodes,
+        "graph_edges":     graph_edges,
+        "tda_info":        tda_info,
+        "n_docs":          len(df),
+        "n_clusters":      len(set(cluster_labels)) - (1 if -1 in cluster_labels else 0),
+        "n_noise":         int((cluster_labels == -1).sum()),
+    }
 
+
+def run_full_pipeline(
+    df: pd.DataFrame,
+    tda_feature_cols: list[str],
+    lens_name: str = "pca",
+    n_intervals: int = 10,
+    overlap: float = 0.5,
+    use_cache: bool = True,
+) -> dict[str, Any]:
+    """
+    Complete TDA pipeline for Government Aid data.
+    Returns a findings dict compatible with the CorteXplorer frontend API contract.
+
+    Lens-independent results are cached per feature set, so switching the lens only
+    recomputes the lens transform and the Mapper graph.
+    """
+    t0 = time.time()
+
+    feat_cols = [c for c in tda_feature_cols if c in df.columns]
+    if not feat_cols:
+        return {"error": "No TDA feature columns available in DataFrame."}
+
+    cache_key   = (tuple(sorted(feat_cols)), len(df))
+    cached_base = _BASE_CACHE.get(cache_key) if use_cache else None
+    base        = cached_base if cached_base is not None else _compute_base(df, feat_cols)
+    if use_cache and cached_base is None:
+        _BASE_CACHE[cache_key] = base
+
+    X_norm         = base["X_norm"]
+    record_ids     = base["record_ids"]
+    cluster_labels = base["cluster_labels"]
+
+    # ── The ONLY lens-dependent work: lens transform + Mapper graph ─────────────
+    from backend.tda.lenses import get_lens
+    lens      = get_lens(lens_name)
+    lens_vals = lens.fit_transform(X_norm)
+    mapper    = build_mapper_graph(X_norm, lens_vals,
+                                   max(n_intervals, 15), max(overlap, 0.4),
+                                   cluster_labels, record_ids)
+
+    elapsed = round(time.time() - t0, 2)
     meta = {
-        "n_docs":           n_docs,
-        "n_clusters":       n_clusters,
-        "n_noise_docs":     n_noise,
-        "n_anomalies":      len(anomalies),
-        "n_suspicious":     len(suspicious),
-        "n_relationships":  len(relationships),
-        "n_drift":          len(drift),
-        "n_topology":       len(topology_findings),
+        "n_docs":           base["n_docs"],
+        "n_clusters":       base["n_clusters"],
+        "n_noise_docs":     base["n_noise"],
+        "n_anomalies":      len(base["anomalies"]),
+        "n_suspicious":     len(base["suspicious"]),
+        "n_relationships":  len(base["relationships"]),
+        "n_drift":          len(base["drift"]),
+        "n_topology":       len(base["topology"]),
         "graph_backend":    "in-memory",
         "torch_available":  False,
-        "ripser_available": tda_info["available"],
+        "ripser_available": base["tda_info"]["available"],
         "giotto_available": False,
         "neo4j_available":  False,
         "theme_quality":    0.0,
-        "n_themes":         n_clusters,
-        "tda":              tda_info,
-        "numeric_features": feat_cols,
-        "category_features": cat_cols,
+        "n_themes":         base["n_clusters"],
+        "tda":              base["tda_info"],
+        "numeric_features": base["feat_cols"],
+        "category_features": base["cat_cols"],
         "data_type":        "tabular",
         "lens":             lens_name,
+        "cached_base":      cached_base is not None,
         "elapsed_s":        elapsed,
     }
 
     log.info(
-        "Pipeline complete: %d records, %d clusters, %d anomalies, %d rels, %.1fs",
-        n_docs, n_clusters, len(anomalies), len(relationships), elapsed
+        "Pipeline: lens=%s cached_base=%s %.2fs (%d mapper nodes)",
+        lens_name, cached_base is not None, elapsed, len(mapper["nodes"])
     )
 
     return {
         "meta":          meta,
-        "themes":        themes,
-        "anomalies":     anomalies,
-        "suspicious":    suspicious,
-        "relationships": relationships,
-        "drift":         drift,
-        "topology":      topology_findings,
+        "themes":        base["themes"],
+        "anomalies":     base["anomalies"],
+        "suspicious":    base["suspicious"],
+        "relationships": base["relationships"],
+        "drift":         base["drift"],
+        "topology":      base["topology"],
         "graph": {
-            "nodes":        graph_nodes,
-            "edges":        graph_edges,
+            "nodes":        base["graph_nodes"],
+            "edges":        base["graph_edges"],
             "mapper_nodes": mapper["nodes"],
             "mapper_edges": mapper["edges"],
         },
@@ -711,5 +739,5 @@ def run_full_pipeline(
         "record_ids": record_ids,
         "lens_values": lens_vals.tolist(),
         "cluster_labels": cluster_labels.tolist(),
-        "combined_scores": combined_scores.tolist() if len(combined_scores) else [],
+        "combined_scores": base["combined_scores"].tolist() if len(base["combined_scores"]) else [],
     }

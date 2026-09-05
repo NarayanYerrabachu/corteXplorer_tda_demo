@@ -409,7 +409,9 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const API = 'http://localhost:8010';
+// `API` is already defined in js/config.js (loaded above) — do not re-declare it
+// here or the whole inline script throws a redeclaration SyntaxError and every
+// onclick handler on this page silently dies.
 
 // ── State ─────────────────────────────────────────────────────────────────
 const CONVERSATIONS = [];

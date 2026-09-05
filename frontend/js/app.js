@@ -59,7 +59,9 @@ async function summarize(mode) {
   if (el) el.textContent = 'Generating summary…';
   if (typeof switchRTab === 'function') switchRTab('summarize');
 
-  let body = { kind: 'overview' };
+  // "Overview" button → AI summary of the currently active lens (>=3 paragraphs).
+  const activeLens = (typeof _currentLens !== 'undefined' && _currentLens) ? _currentLens : 'anomalies';
+  let body = { kind: 'lens', lens: activeLens };
   if (mode === 'selected' && _selectedFinding) {
     const src = (_selectedFinding.sources || [])[0];
     if (_selectedFinding.kind === 'theme') {
@@ -77,7 +79,8 @@ async function summarize(mode) {
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(body),
     }).then(r => r.json());
-    if (el) el.innerHTML = `<div class="sum-text">${esc(data.summary || '').replace(/\n/g, '<br>')}</div>`;
+    const note = data.note ? `<div style="margin-top:10px;color:var(--faint);font-size:11px">${esc(data.note)}</div>` : '';
+    if (el) el.innerHTML = `<div class="sum-text">${mdLite(data.summary || '')}</div>${note}`;
   } catch (e) {
     if (el) el.textContent = 'Summary unavailable.';
   }
@@ -96,7 +99,7 @@ async function autoInterrogate(id) {
       body:    JSON.stringify({ target: 'record', id }),
     }).then(r => r.json());
     body.innerHTML = `
-      <div style="font-size:12.5px;line-height:1.6;color:var(--mute)">${esc(data.explanation).replace(/\n/g,'<br>')}</div>
+      <div style="font-size:12.5px;line-height:1.6;color:var(--mute)">${mdLite(data.explanation)}</div>
       <div class="audit-verified" style="margin-top:12px">✓ TRACEABLE</div>`;
   } catch (e) {
     body.innerHTML = '<div class="src-empty">Interrogation failed.</div>';
@@ -117,7 +120,7 @@ async function sendInterrogate() {
       body:    JSON.stringify({ message: q }),
     }).then(r => r.json());
     if (body) body.innerHTML = `
-      <div style="font-size:12.5px;line-height:1.6;color:var(--text)">${esc(data.answer).replace(/\n/g,'<br>')}</div>
+      <div style="font-size:12.5px;line-height:1.6;color:var(--text)">${mdLite(data.answer)}</div>
       <div class="audit-verified" style="margin-top:8px">✓ TRACEABLE</div>`;
   } catch (e) {
     if (body) body.innerHTML = '<div class="src-empty">Interrogation unavailable.</div>';
@@ -226,6 +229,18 @@ function showView(name) {
   }
 }
 
+// Minimal Markdown → HTML for AI-generated text (headings + **bold**), HTML-escaped first.
+function mdLite(text) {
+  return (text || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/^#{3}\s+(.+)$/gm, '<div style="font-weight:700;color:var(--text);margin:14px 0 6px">$1</div>')
+    .replace(/^#{2}\s+(.+)$/gm, '<div style="font-weight:700;font-size:14px;color:var(--tda);margin:16px 0 8px">$1</div>')
+    .replace(/^#{1}\s+(.+)$/gm, '<div style="font-weight:700;font-size:15px;color:var(--text);margin:16px 0 8px">$1</div>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text)">$1</strong>')
+    .replace(/\n/g, '<br>')
+    .replace(/(<\/div>)<br>/g, '$1');
+}
+
 async function loadInlineReport() {
   const pre = document.getElementById('report-content');
   if (!pre) return;
@@ -248,7 +263,7 @@ async function loadInlineAIReport() {
   try {
     const data = await fetch(`${API}/api/report/ai`).then(r => r.json());
     if (data.ai_section) {
-      textEl.innerHTML = data.ai_section.replace(/\n/g, '<br>');
+      textEl.innerHTML = mdLite(data.ai_section);
       section.style.display = 'block';
       btn.textContent = '✓ AI Insights loaded';
     } else {
@@ -296,7 +311,7 @@ async function drawTDAExplorerGraph() {
     // (container.offsetWidth is unreliable for flex/grid items during transition)
     const FEAT_COL = 190, CFG_COL = 270, PADDING = 40;
     const svgW = Math.max(window.innerWidth - FEAT_COL - CFG_COL - PADDING, 400);
-    const svgH = Math.max(window.innerHeight - 100 - 60, 350); // minus header/nav/caption
+    const svgH = Math.max(window.innerHeight - 100 - 60 - 44, 320); // minus header/nav + reserve caption row
     svgEl.setAttribute('width',  svgW);
     svgEl.setAttribute('height', svgH);
     svgEl.style.width  = svgW + 'px';
