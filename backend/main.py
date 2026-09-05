@@ -12,9 +12,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from dotenv import load_dotenv
-load_dotenv()                          # load .env into os.environ at startup
-
-load_dotenv(Path(__file__).parents[1] / ".env")
+load_dotenv(Path(__file__).parents[1] / ".env")   # load project-root .env
 
 import numpy as np
 import pandas as pd
