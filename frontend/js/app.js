@@ -209,6 +209,138 @@ async function summarizeDataset() {
   }
 }
 
+// ── Persistence Diagram (D3 scatter plot) ─────────────────────────────────────
+
+async function buildPersistenceDiagram() {
+  const svg = document.getElementById('fsv-persistence-diagram');
+  if (!svg || typeof d3 === 'undefined') return;
+
+  // Fetch diagram data from the cycles endpoint
+  let data;
+  try {
+    data = await fetch(`${API}/api/tda/cycles`).then(r => r.json());
+  } catch(e) { return; }
+
+  const h0pts  = data.diagram_h0 || [];
+  const h1pts  = data.diagram_h1 || [];
+  const axMax  = data.diagram_max || 1.0;
+  if (!h0pts.length && !h1pts.length) return;
+
+  const W = svg.getBoundingClientRect().width || 420;
+  const H = Math.round(W * 0.82);
+  const M = { top: 16, right: 20, bottom: 44, left: 48 };
+  const iW = W - M.left - M.right;
+  const iH = H - M.top  - M.bottom;
+
+  svg.setAttribute('width',  W);
+  svg.setAttribute('height', H);
+  d3.select(svg).selectAll('*').remove();
+
+  const root = d3.select(svg).append('g').attr('transform', `translate(${M.left},${M.top})`);
+
+  // Scales — include 0 on both axes
+  const xSc = d3.scaleLinear().domain([0, axMax]).range([0, iW]);
+  const ySc = d3.scaleLinear().domain([0, axMax]).range([iH, 0]);
+
+  // Grid lines
+  root.append('g').attr('class','grid')
+    .call(d3.axisLeft(ySc).ticks(5).tickSize(-iW).tickFormat(''))
+    .selectAll('line').attr('stroke','#2A2F3A').attr('stroke-dasharray','3,3');
+  root.select('.grid .domain').remove();
+
+  // Diagonal line y = x (death = birth → zero persistence)
+  root.append('line')
+    .attr('x1', xSc(0)).attr('y1', ySc(0))
+    .attr('x2', xSc(axMax)).attr('y2', ySc(axMax))
+    .attr('stroke','#59616E').attr('stroke-dasharray','5,4').attr('stroke-width', 1.2);
+
+  // Shaded region below diagonal (impossible zone)
+  root.append('polygon')
+    .attr('points', `${xSc(0)},${ySc(0)} ${xSc(axMax)},${ySc(axMax)} ${xSc(axMax)},${ySc(0)}`)
+    .attr('fill','rgba(42,47,58,0.5)');
+
+  // Axes
+  root.append('g').attr('transform', `translate(0,${iH})`)
+    .call(d3.axisBottom(xSc).ticks(5))
+    .selectAll('text,line,path').attr('stroke','#59616E').attr('fill','#59616E');
+  root.append('g')
+    .call(d3.axisLeft(ySc).ticks(5))
+    .selectAll('text,line,path').attr('stroke','#59616E').attr('fill','#59616E');
+
+  // Axis labels
+  root.append('text')
+    .attr('x', iW / 2).attr('y', iH + 36)
+    .attr('fill','#878E9C').attr('font-size', 10).attr('text-anchor','middle')
+    .attr('font-family','IBM Plex Mono,monospace').text('Birth');
+  root.append('text')
+    .attr('transform','rotate(-90)')
+    .attr('x', -iH / 2).attr('y', -36)
+    .attr('fill','#878E9C').attr('font-size', 10).attr('text-anchor','middle')
+    .attr('font-family','IBM Plex Mono,monospace').text('Death');
+
+  // Tooltip
+  const tip = d3.select('body').selectAll('#pd-tip').data([0]).join('div')
+    .attr('id','pd-tip')
+    .style('position','fixed').style('pointer-events','none').style('opacity',0)
+    .style('background','#20242D').style('border','1px solid #2A2F3A')
+    .style('color','#D9DCE3').style('font-size','11px').style('padding','7px 10px')
+    .style('border-radius','3px').style('font-family','IBM Plex Mono,monospace')
+    .style('z-index','999').style('line-height','1.6');
+
+  const showTip = (ev, d) => {
+    const label = d.dim === 0 ? 'H₀ component' : 'H₁ loop';
+    const pers  = d.persistence != null ? d.persistence.toFixed(4) : '∞';
+    const death = d.death != null ? d.death.toFixed(4) : '∞';
+    tip.html(`${label}<br>birth: ${d.birth.toFixed(4)}<br>death: ${death}<br>persistence: ${pers}`)
+       .style('left', (ev.clientX + 14) + 'px')
+       .style('top',  (ev.clientY - 10) + 'px')
+       .transition().duration(80).style('opacity', 1);
+  };
+  const hideTip = () => tip.transition().duration(120).style('opacity', 0);
+
+  // H₀ points — render finite ones normally, infinite at top edge
+  const h0Finite = h0pts.filter(d => !d.infinite);
+  const h0Inf    = h0pts.filter(d =>  d.infinite);
+
+  root.selectAll('.pt-h0').data(h0Finite).join('circle')
+    .attr('class','pt-h0')
+    .attr('cx', d => xSc(d.birth))
+    .attr('cy', d => ySc(d.death))
+    .attr('r', 4)
+    .attr('fill','var(--relate)').attr('opacity', 0.75).attr('stroke','none')
+    .on('mousemove', showTip).on('mouseleave', hideTip);
+
+  // Infinite H₀ — shown as diamond at top-left edge
+  root.selectAll('.pt-h0-inf').data(h0Inf).join('path')
+    .attr('class','pt-h0-inf')
+    .attr('d', d3.symbol().type(d3.symbolDiamond).size(60))
+    .attr('transform', d => `translate(${xSc(d.birth)}, ${ySc(axMax) + 8})`)
+    .attr('fill','var(--relate)').attr('opacity', 0.9)
+    .on('mousemove', (ev, d) => showTip(ev, {...d, death: Infinity, persistence: Infinity}))
+    .on('mouseleave', hideTip);
+
+  // H₁ points
+  root.selectAll('.pt-h1').data(h1pts).join('circle')
+    .attr('class','pt-h1')
+    .attr('cx', d => xSc(d.birth))
+    .attr('cy', d => ySc(d.death))
+    .attr('r', d => d.persistence > axMax * 0.1 ? 5 : 3.5)
+    .attr('fill','var(--signal)').attr('opacity', d => Math.min(0.9, 0.35 + d.persistence / axMax))
+    .attr('stroke', d => d.persistence > axMax * 0.2 ? 'rgba(224,163,62,0.6)' : 'none')
+    .attr('stroke-width', 1)
+    .on('mousemove', showTip).on('mouseleave', hideTip);
+
+  // Label the top-5 most persistent H₁
+  const top5 = [...h1pts].sort((a,b) => b.persistence - a.persistence).slice(0,5);
+  root.selectAll('.lbl-h1').data(top5).join('text')
+    .attr('class','lbl-h1')
+    .attr('x', d => xSc(d.birth) + 7)
+    .attr('y', d => ySc(d.death) - 4)
+    .attr('fill','var(--signal)').attr('font-size', 9)
+    .attr('font-family','IBM Plex Mono,monospace')
+    .text(d => `p=${d.persistence.toFixed(3)}`);
+}
+
 // ── Full-screen Summary view ──────────────────────────────────────────────────
 
 function buildFullSummaryView() {
@@ -320,6 +452,9 @@ function buildFullSummaryView() {
         </div>`;
     }).join('');
   }
+
+  // Persistence diagram
+  buildPersistenceDiagram();
 
   // Top signals (clickable cards)
   const sigEl = document.getElementById('fsv-top-signals');

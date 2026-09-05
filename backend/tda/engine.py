@@ -44,6 +44,7 @@ def compute_persistent_homology(X_norm: np.ndarray, sample_n: int = _SAMPLE_N) -
         "betti_0":         1,
         "betti_1":         0,
         "max_persistence": 0.0,
+        "h0_features":     [],
         "h1_features":     [],
     }
     try:
@@ -55,30 +56,68 @@ def compute_persistent_homology(X_norm: np.ndarray, sample_n: int = _SAMPLE_N) -
         X_s = X_pca[idx]
 
         dgms = _ripser(X_s, maxdim=1)["dgms"]
-        h1   = dgms[1]
-        if len(h1) > 0:
-            finite = h1[np.isfinite(h1[:, 1])]
-            betti1  = len(finite)
-            pers    = finite[:, 1] - finite[:, 0] if betti1 > 0 else np.array([])
-            max_p   = float(pers.max()) if betti1 > 0 else 0.0
-            top10   = finite[np.argsort(-pers)[:10]] if betti1 > 0 else []
-            h1_feats = [
-                {
-                    "birth":       float(r[0]),
-                    "death":       float(r[1]),
-                    "persistence": float(r[1] - r[0]),
-                    "label":       f"Loop {i+1} (pers {r[1]-r[0]:.4f})",
-                    "sources":     [],
-                }
-                for i, r in enumerate(top10)
-            ]
-            result.update({
-                "available":       True,
-                "betti_0":         1,
-                "betti_1":         betti1,
-                "max_persistence": round(max_p, 4),
-                "h1_features":     h1_feats,
-            })
+
+        # ── H₀ — connected components ────────────────────────────────────────
+        h0        = dgms[0]
+        h0_finite = h0[np.isfinite(h0[:, 1])]
+        h0_inf    = h0[~np.isfinite(h0[:, 1])]
+
+        # cap for display: max finite death value
+        h0_max = float(h0_finite[:, 1].max()) if len(h0_finite) > 0 else 1.0
+        h0_feats = [
+            {
+                "dim":         0,
+                "birth":       float(r[0]),
+                "death":       float(r[1]),
+                "persistence": float(r[1] - r[0]),
+                "infinite":    False,
+            }
+            for r in h0_finite[:50]
+        ] + [
+            {
+                "dim":         0,
+                "birth":       float(r[0]),
+                "death":       None,          # ∞ — shown at top edge
+                "persistence": None,
+                "infinite":    True,
+            }
+            for r in h0_inf[:1]              # only the one true infinite component
+        ]
+
+        # ── H₁ — loops ───────────────────────────────────────────────────────
+        h1     = dgms[1]
+        finite = h1[np.isfinite(h1[:, 1])]
+        betti1 = len(finite)
+        pers   = finite[:, 1] - finite[:, 0] if betti1 > 0 else np.array([])
+        max_p  = float(pers.max()) if betti1 > 0 else 0.0
+        # Keep top-200 for the diagram; top-10 labelled for the list
+        top200 = finite[np.argsort(-pers)[:200]] if betti1 > 0 else []
+        top10  = top200[:10]
+
+        h1_feats = [
+            {
+                "dim":         1,
+                "birth":       float(r[0]),
+                "death":       float(r[1]),
+                "persistence": float(r[1] - r[0]),
+                "infinite":    False,
+                "label":       f"Loop {i+1} (pers {r[1]-r[0]:.4f})" if i < 10 else "",
+                "sources":     [],
+            }
+            for i, r in enumerate(top200)
+        ]
+
+        result.update({
+            "available":       True,
+            "betti_0":         len(h0_finite) + len(h0_inf),
+            "betti_1":         betti1,
+            "max_persistence": round(max_p, 4),
+            "h0_features":     h0_feats,
+            "h1_features":     [f for f in h1_feats if f["label"]],  # labelled top-10 for list
+            "diagram_h0":      h0_feats,                              # all H₀ for diagram
+            "diagram_h1":      h1_feats,                              # top-200 H₁ for diagram
+            "diagram_max":     round(max(h0_max, max_p) * 1.05, 4),  # axis upper bound
+        })
         log.info("TDA: β₁=%d  max_pers=%.4f", result["betti_1"], result["max_persistence"])
     except Exception as exc:
         log.warning("Persistent homology unavailable: %s", exc)

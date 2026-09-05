@@ -533,6 +533,9 @@ def get_tda_cycles():
         "betti_1":         tda.get("betti_1", 0),
         "max_persistence": tda.get("max_persistence", 0.0),
         "h1_features":     tda.get("h1_features", []),
+        "diagram_h0":      tda.get("diagram_h0", []),
+        "diagram_h1":      tda.get("diagram_h1", []),
+        "diagram_max":     tda.get("diagram_max", 1.0),
     }
 
 
