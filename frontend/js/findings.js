@@ -135,12 +135,17 @@ function selectFinding(f, el) {
   const btn = document.getElementById('btn-sum-selected');
   if (btn) btn.disabled = false;
 
-  // Auto-update Audit Trail tab when a record card is clicked
+  // Clusters get a dedicated detail panel
+  if (f.kind === 'theme') {
+    _showClusterDetail(f);
+    return;
+  }
+
+  // Relationship / drift / topology — show inline summary
   const pid = (f.sources || [])[0];
   if (pid && typeof loadAudit === 'function') {
-    loadAudit(pid);          // loads the audit trail
+    loadAudit(pid);
   } else if (typeof switchRTab === 'function') {
-    // For findings without a source (topology/drift), show a summary
     const body = document.getElementById('audit-content');
     if (body) {
       body.innerHTML = `
@@ -155,6 +160,57 @@ function selectFinding(f, el) {
       switchRTab('audit');
     }
   }
+}
+
+function _showClusterDetail(f) {
+  const ex      = f.extra || {};
+  const stats   = ex.stats || {};
+  const sources = f.sources || [];
+  const nRec    = ex.n_records || sources.length;
+  const cid     = ex.cluster_id ?? '?';
+
+  // Build stat rows
+  const statRows = Object.entries(stats).map(([col, s]) => {
+    const label = col.replace(/_/g,' ').replace('Cost Overran in %','Cost Overrun').replace('Project Success','Success Rate').replace('Evaluation Lag Days','Eval Lag');
+    const mean  = typeof s.mean === 'number' ? s.mean.toFixed(3) : '–';
+    const std   = typeof s.std  === 'number' ? s.std.toFixed(3)  : '–';
+    return `
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line);font-size:12px">
+        <span style="color:var(--mute);font-family:'IBM Plex Mono',monospace">${esc(label)}</span>
+        <span style="color:var(--text)">mean <b style="color:var(--theme)">${mean}</b> &nbsp; σ ${std}</span>
+      </div>`;
+  }).join('');
+
+  // Source project chips
+  const chips = sources.slice(0, 15).map(pid =>
+    `<span style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--tda);
+      background:rgba(155,127,212,.08);border:1px solid rgba(155,127,212,.25);
+      border-radius:2px;padding:1px 6px;cursor:pointer"
+      onclick="autoInterrogate('${esc(pid)}')">${esc(pid)}</span>`
+  ).join(' ');
+
+  const body = document.getElementById('audit-content');
+  if (!body) return;
+
+  body.innerHTML = `
+    <div style="padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--line)">
+      <div style="font-size:11px;color:var(--theme);font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">CLUSTER ${cid}</div>
+      <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px">${esc(f.title||'')}</div>
+      <div style="font-size:12px;color:var(--mute)">${nRec.toLocaleString()} aid projects &nbsp;·&nbsp; ${sources.length} sample records</div>
+    </div>
+
+    ${statRows ? `
+    <div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-family:'IBM Plex Mono',monospace;margin-bottom:8px">CLUSTER STATISTICS</div>
+    ${statRows}
+    <div style="margin-top:14px"></div>` : ''}
+
+    <div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-family:'IBM Plex Mono',monospace;margin-bottom:8px">SAMPLE PROJECTS</div>
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px">${chips || '<span style="color:var(--faint)">No sources</span>'}</div>
+
+    <button class="sum-btn" style="font-size:11px" onclick="summarize('selected')">AI: Summarize this cluster</button>
+    <div class="audit-verified" style="margin-top:10px">✓ TRACEABLE — ${nRec.toLocaleString()} projects</div>`;
+
+  if (typeof switchRTab === 'function') switchRTab('audit');
 }
 
 function renderFindingsRaw(items, title) {
