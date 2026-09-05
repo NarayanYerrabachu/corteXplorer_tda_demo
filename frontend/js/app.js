@@ -458,8 +458,8 @@ async function buildPersistenceDiagram() {
   };
   const hideTip = () => tip.transition().duration(120).style('opacity', 0);
 
-  const C_H0 = '#4EA8DE';   // bright blue  — H₀ connected components
-  const C_H1 = '#FF6B6B';   // coral red    — H₁ loops
+  const C_H0 = '#1f77b4';   // standard blue  — H₀ connected components
+  const C_H1 = '#9B7FD4';   // TDA purple     — H₁ loops
 
   // H₀: only show points within diagram bounds (H₀ raw deaths can be huge)
   const h0Finite = h0pts.filter(d => !d.infinite && d.death <= axMax);
@@ -489,7 +489,7 @@ async function buildPersistenceDiagram() {
     .attr('cy', d => ySc(d.death))
     .attr('r', d => d.persistence > axMax * 0.1 ? 5.5 : 3.5)
     .attr('fill', C_H1).attr('opacity', d => Math.min(0.92, 0.35 + d.persistence / axMax))
-    .attr('stroke', d => d.persistence > axMax * 0.2 ? 'rgba(255,107,107,0.5)' : 'none')
+    .attr('stroke', d => d.persistence > axMax * 0.2 ? 'rgba(155,127,212,0.5)' : 'none')
     .attr('stroke-width', 1.2)
     .on('mousemove', showTip).on('mouseleave', hideTip);
 
