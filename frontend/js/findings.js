@@ -49,8 +49,14 @@ function renderFindings(lens) {
   list.querySelectorAll('.trace-btn').forEach((btn, i) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const pid = items[i].sources?.[0];
-      if (pid) loadAudit(pid);
+      const item = items[i];
+      if (item.kind === 'theme') {
+        // Cluster: show cluster detail, not a single project trace
+        selectFinding(item, list.querySelectorAll('.find')[i]);
+      } else {
+        const pid = item.sources?.[0];
+        if (pid) loadAudit(pid);
+      }
     });
   });
 
@@ -109,7 +115,11 @@ function buildCard(f, i) {
   }
 
   const srcCount = (f.sources || []).length;
-  const traceBtn = srcCount > 0 ? `<button class="trace-btn">${srcCount} source · click to trace</button>` : '';
+  const traceBtn = srcCount > 0
+    ? (kind === 'theme'
+        ? `<button class="trace-btn" style="color:var(--theme);border-color:rgba(169,180,196,.3)">→ view cluster detail</button>`
+        : `<button class="trace-btn">${srcCount} source · click to trace</button>`)
+    : '';
 
   return `
   <div class="find k-${kind}" aria-selected="false" data-idx="${i}"
