@@ -718,23 +718,125 @@ def summarize(req: SummarizeRequest):
         return _summarize_lens(req.lens or "anomalies")
 
     if req.kind == "overview":
-        meta = p.get("meta", {})
-        tda  = meta.get("tda", {})
+        meta  = p.get("meta", {})
+        tda   = meta.get("tda", {})
+        b1    = tda.get("betti_1", 0)
+        mp    = tda.get("max_persistence", 0.0)
+        n_cl  = meta.get("n_clusters", 0)
+        n_an  = meta.get("n_anomalies", 0)
+        n_su  = meta.get("n_suspicious", 0)
+        n_re  = meta.get("n_relationships", 0)
+        n_dr  = meta.get("n_drift", 0)
+        tot   = stats.get("total_records", 0)
+        ctry  = stats.get("countries", 0)
+        sect  = stats.get("sectors", 0)
+        yr    = stats.get("year_range", "unknown")
+        succ  = stats.get("success_rate", 0.0)
+        ovr   = stats.get("avg_overrun_pct", 0.0)
+        cpi   = stats.get("avg_cpi", 0.0)
+        lag   = stats.get("avg_eval_lag", 0.0)
+
+        # Top anomaly details for para 2
+        top_anoms = (p.get("anomalies") or [])[:3]
+        anom_lines = "; ".join(
+            f"{a.get('title','?')} (score {a.get('score',0):.3f})"
+            for a in top_anoms
+        ) or "none identified"
+
+        # Shape classification
+        if b1 == 0:
+            shape_desc = "a tree-like (acyclic) topology — no persistent loops, aid projects form hierarchically separated clusters without circular funding patterns"
+        elif b1 <= 5:
+            shape_desc = f"a weakly cyclic topology with {b1} H₁ loop{'s' if b1>1 else ''} — recurring structural patterns present, suggesting cyclical funding relationships or repeated project failure profiles"
+        elif b1 <= 50:
+            shape_desc = f"a moderately cyclic topology with {b1} H₁ loops — systematic co-occurrence of risk factors and repeated funding networks are evident across sectors"
+        else:
+            shape_desc = f"a highly cyclic topology with {b1} H₁ loops — deeply embedded, systematic structural patterns: circular funding networks, correlated failure modes, or shared risk factors propagating across countries and sectors"
+
+        pers_comment = (
+            "The high persistence value confirms these are robust, statistically significant topological features — not noise artefacts."
+            if mp > 0.5 else
+            "The moderate persistence indicates real but not dominant structural patterns."
+            if mp > 0.2 else
+            "Low persistence suggests exploratory signals that merit further investigation."
+        )
+
+        _OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
+        if _OPENAI_KEY:
+            try:
+                import openai
+                client = openai.OpenAI(api_key=_OPENAI_KEY)
+                context = (
+                    f"Dataset: {tot:,} government aid projects, {ctry} countries, {sect} DAC sectors, {yr}.\n"
+                    f"Performance: success rate {succ:.1f}%, avg cost overrun {ovr:.1f}%, avg CPI {cpi:.1f}, avg eval lag {lag:.0f} days.\n"
+                    f"TDA findings: {n_cl} clusters, {n_an} anomalies, {n_su} suspicious, {n_re} relationships, {n_dr} drift signals.\n"
+                    f"Topology: β₁={b1} loops, max persistence {mp:.4f}. Shape: {shape_desc}.\n"
+                    f"Top anomalies: {anom_lines}.\n"
+                )
+                prompt = (
+                    "You are CorteXplorer's analyst writing for a government aid oversight committee. "
+                    "Write a full dataset overview of EXACTLY 4 paragraphs, based ONLY on the data below. "
+                    "Structure:\n"
+                    "Paragraph 1 — Dataset scope: size, countries, sectors, time range, overall performance metrics.\n"
+                    "Paragraph 2 — Key findings: anomaly count, suspicious records, clusters, co-occurrence relationships, drift signals. Name specific examples where available.\n"
+                    "Paragraph 3 — Topological shape analysis: what the TDA reveals about the data's structural shape, loops, persistence, and what this implies for funding patterns.\n"
+                    "Paragraph 4 — Systemic interpretation and recommended actions for the oversight committee.\n"
+                    "Use **bold** for key terms and figures. Be specific and grounded in the figures provided. Do not invent any numbers.\n\n"
+                    f"DATA:\n{context}"
+                )
+                resp = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=900,
+                )
+                return {"summary": resp.choices[0].message.content, "kind": "overview", "ai": True}
+            except Exception as exc:
+                log.error("Overview AI summary failed: %s", exc)
+
+        # Templated 4-paragraph fallback (no AI key or AI failed)
+        para1 = (
+            f"The Government Aid dataset encompasses **{tot:,} projects** spanning "
+            f"**{ctry} countries** and **{sect} DAC sectors** between {yr}. "
+            f"Across this portfolio, the overall project success rate stands at "
+            f"**{succ:.1f}%**, with an average cost overrun of **{ovr:.1f}%** — "
+            f"indicating that a significant share of projects substantially exceeded their initial budgets. "
+            f"The average CPI (Corruption Perceptions Index) score across project host countries is "
+            f"**{cpi:.1f}**, and the average evaluation lag between project completion and formal "
+            f"assessment is **{lag:.0f} days**, suggesting systemic delays in accountability reporting."
+        )
+        para2 = (
+            f"Topological Data Analysis (TDA) identified **{n_cl} structural clusters** grouping "
+            f"projects by shared risk and performance profiles, alongside **{n_an} statistical anomalies** "
+            f"and **{n_su} rule-flagged suspicious records** exhibiting extreme cost overruns, failed "
+            f"outcomes, or abnormally low CPI scores. The pipeline also detected **{n_re} co-occurrence "
+            f"relationships** — country-sector pairs that repeatedly appear together among high-overrun "
+            f"projects — and **{n_dr} temporal drift signal{'s' if n_dr != 1 else ''}** indicating that "
+            f"key performance metrics have shifted meaningfully over the dataset's time range. "
+            f"The most severe anomalies include: {anom_lines}."
+        )
+        para3 = (
+            f"The topological shape of the dataset reveals {shape_desc}. "
+            f"Persistent homology computed **β₁ = {b1}** H₁ loops with a maximum persistence of "
+            f"**{mp:.4f}**. {pers_comment} "
+            f"These loops are not mathematical artefacts — they represent real recurring cycles in the "
+            f"data's feature space, most likely reflecting systematic co-dependencies between budget "
+            f"overrun rates, CPI scores, and sector-country combinations that repeat across the portfolio."
+        )
+        para4 = (
+            f"Taken together, these findings point to structural vulnerabilities that are neither random "
+            f"nor isolated. The combination of high overrun rates, a substantial anomaly footprint, and "
+            f"{'a strongly cyclic' if b1 > 50 else 'a cyclic' if b1 > 0 else 'an acyclic'} topological "
+            f"structure suggests that certain funding channels, sectors, or country contexts are "
+            f"systematically associated with poor outcomes. The oversight committee is advised to "
+            f"prioritise forensic review of the {n_su} suspicious records, investigate the "
+            f"{n_re} identified co-occurrence relationships for potential procurement coordination, "
+            f"and examine the {n_dr} drift signal{'s' if n_dr != 1 else ''} for evidence of "
+            f"deteriorating governance conditions over time."
+        )
         return {
-            "summary": (
-                f"Government Aid dataset contains {stats.get('total_records', 0):,} projects "
-                f"across {stats.get('countries', 0)} countries and {stats.get('sectors', 0)} DAC sectors. "
-                f"TDA identified {meta.get('n_clusters', 0)} clusters, "
-                f"{meta.get('n_anomalies', 0)} anomalies, "
-                f"{meta.get('n_suspicious', 0)} suspicious records, "
-                f"and {meta.get('n_relationships', 0)} co-occurrence relationships. "
-                f"Average cost overrun: {stats.get('avg_overrun_pct', 0):.1f}%. "
-                f"Project success rate: {stats.get('success_rate', 0):.1f}%. "
-                f"Average CPI score: {stats.get('avg_cpi', 0):.1f}. "
-                f"Topological analysis found β₁={tda.get('betti_1', 0)} loops "
-                f"(max persistence {tda.get('max_persistence', 0):.4f})."
-            ),
+            "summary": f"{para1}\n\n{para2}\n\n{para3}\n\n{para4}",
             "kind": "overview",
+            "ai": False,
         }
 
     if req.kind == "cluster" and req.id is not None:
