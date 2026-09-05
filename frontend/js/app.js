@@ -209,6 +209,169 @@ async function summarizeDataset() {
   }
 }
 
+// ── Full-screen Summary view ──────────────────────────────────────────────────
+
+function buildFullSummaryView() {
+  const s   = _datasetStats;
+  const m   = (_findings && _findings.meta) ? _findings.meta : {};
+  const tda = m.tda || {};
+
+  // Dataset KPI tiles (4-col grid)
+  const statGrid = document.getElementById('fsv-stat-grid');
+  if (statGrid) {
+    const clr = { tda:'var(--tda)', ok:'var(--ok)', warn:'var(--signal)', mute:'var(--mute)', '':'var(--text)' };
+    const tiles = [
+      { v: (s.total_records || 0).toLocaleString(), l: 'Aid Projects',      c: 'tda'  },
+      { v: s.countries  ?? '–',                    l: 'Countries',          c: ''     },
+      { v: s.sectors    ?? '–',                    l: 'DAC Sectors',        c: ''     },
+      { v: s.year_range ?? '–',                    l: 'Year Range',         c: ''     },
+      { v: `${(+(s.success_rate    || 0)).toFixed(1)}%`, l: 'Success Rate',       c: 'ok'   },
+      { v: `${(+(s.avg_overrun_pct || 0)).toFixed(1)}%`, l: 'Avg Cost Overrun',   c: 'warn' },
+      { v: (+(s.avg_cpi   || 0)).toFixed(1),              l: 'Avg CPI Score',      c: ''     },
+      { v: `${Math.round(+(s.avg_eval_lag || 0))} days`,  l: 'Avg Eval Lag',       c: 'mute' },
+    ];
+    statGrid.innerHTML = tiles.map(t =>
+      `<div style="background:var(--panel2);border:1px solid var(--line);border-radius:3px;padding:12px 14px">
+         <div style="font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:700;color:${clr[t.c]}">${esc(String(t.v))}</div>
+         <div style="font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.14em;margin-top:5px">${t.l}</div>
+       </div>`
+    ).join('');
+  }
+
+  // TDA shape metrics
+  const tdaEl = document.getElementById('fsv-tda-metrics');
+  if (tdaEl) {
+    const b0 = tda.betti_0 ?? 1;
+    const b1 = tda.betti_1 ?? 0;
+    const mp = (+(tda.max_persistence ?? 0)).toFixed(4);
+    tdaEl.innerHTML = [
+      { v: b0, l: 'β₀ CONNECTED COMPONENTS' },
+      { v: b1, l: 'β₁ TOPOLOGICAL LOOPS'    },
+      { v: mp, l: 'MAX PERSISTENCE'          },
+    ].map(t =>
+      `<div style="background:var(--panel2);border:1px solid var(--line);border-radius:3px;padding:12px;text-align:center">
+         <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:700;color:var(--tda)">${t.v}</div>
+         <div style="font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.09em;margin-top:5px">${t.l}</div>
+       </div>`
+    ).join('');
+
+    // Auto-interpretation
+    const b1n = Number(b1);
+    const mpn = parseFloat(mp);
+    const nCl = m.n_clusters || 0;
+    let shape = '';
+    if (b1n === 0) {
+      shape = `<b style="color:var(--tda)">Tree-like topology (acyclic)</b> — the dataset forms ${b0} connected component${b0!==1?'s':''} with no persistent cycles. Aid projects cluster into hierarchically separated groups without circular funding structure.`;
+    } else if (b1n <= 5) {
+      shape = `<b style="color:var(--tda)">Weakly cyclic topology</b> — ${b1n} persistent H₁ loop${b1n>1?'s':''} detected (max persistence ${mp}). Recurring structural patterns are present — possibly cyclical funding relationships or repeated project failure profiles across countries.`;
+    } else if (b1n <= 50) {
+      shape = `<b style="color:var(--signal)">Moderately cyclic topology (${b1n} loops)</b> — a significant number of H₁ loops reveals recurring structural patterns. This may indicate systematic co-occurrence of risk factors or repeated funding networks across sectors.`;
+    } else {
+      shape = `<b style="color:var(--signal)">Highly cyclic topology (${b1n} loops)</b> — an unusually high loop count signals deeply embedded, systematic structural patterns: correlated failure modes, circular funding networks, or shared risk factors propagating across countries and sectors.`;
+    }
+    if (mpn > 0.5)      shape += `<br><br>High persistence (<b>${mp}</b>) confirms these are <b style="color:var(--signal)">robust, statistically significant topological features</b> — not noise artefacts.`;
+    else if (mpn > 0.2) shape += `<br><br>Persistence <b>${mp}</b> indicates <b style="color:var(--text)">moderate confidence</b> — patterns are real but not the dominant structural feature.`;
+    else if (mpn > 0)   shape += `<br><br>Low persistence (<b>${mp}</b>) — treat as <b style="color:var(--mute)">exploratory signals</b> requiring further validation.`;
+    if (nCl > 0) shape += `<br><br>DBSCAN found <b style="color:var(--tda)">${nCl} distinct cluster${nCl>1?'s':''}</b> — ${nCl > 5 ? 'highly fragmented across many diverse project archetypes' : 'grouped into ' + nCl + ' cohesive project profile' + (nCl>1?'s':'')}.`;
+
+    const interpEl = document.getElementById('fsv-shape-interpretation');
+    if (interpEl) interpEl.innerHTML = shape;
+
+    // H₁ loops
+    const h1   = tda.h1_features || [];
+    const h1El = document.getElementById('fsv-h1-loops');
+    if (h1El) {
+      h1El.innerHTML = h1.length
+        ? h1.slice(0, 8).map((lp, i) =>
+            `<div style="padding:5px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:10px">
+               <span style="color:var(--mute)">Loop ${i+1}</span>
+               <span>persistence <b style="color:var(--tda)">${(lp.persistence||0).toFixed(4)}</b></span>
+               <span style="color:var(--faint)">${(lp.birth||0).toFixed(4)} → ${(lp.death||0).toFixed(4)}</span>
+             </div>`
+          ).join('')
+        : '<span style="color:var(--faint)">No H₁ loops detected</span>';
+    }
+  }
+
+  // Finding distribution bars
+  const distEl = document.getElementById('fsv-finding-dist');
+  if (distEl) {
+    const rows = [
+      { k:'anomalies',     lensKey:'anomalies',     label:'Anomalies',     color:'var(--signal)', mkey:'n_anomalies'     },
+      { k:'suspicious',    lensKey:'suspicious',    label:'Suspicious',    color:'var(--danger)', mkey:'n_suspicious'    },
+      { k:'themes',        lensKey:'clusters',      label:'Clusters',      color:'var(--tda)',    mkey:'n_clusters'      },
+      { k:'relationships', lensKey:'relationships', label:'Relationships', color:'var(--relate)', mkey:'n_relationships' },
+      { k:'drift',         lensKey:'drift',         label:'Drift',         color:'var(--drift)',  mkey:'n_drift'         },
+      { k:'topology',      lensKey:'topology',      label:'Topology',      color:'var(--tda)',    mkey:null              },
+    ];
+    const counts   = rows.map(r => r.mkey ? (m[r.mkey]||0) : (_findings[r.k]||[]).length);
+    const maxCount = Math.max(1, ...counts);
+    distEl.innerHTML = rows.map((r, i) => {
+      const count = counts[i];
+      const pct   = Math.round((count / maxCount) * 100);
+      return `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;cursor:pointer"
+             onclick="showView('analysis');setLens('${r.lensKey}')">
+          <div style="width:90px;font-size:11px;color:${r.color};font-family:'IBM Plex Mono',monospace;text-align:right;flex:none">${r.label}</div>
+          <div style="flex:1;height:8px;background:var(--panel2);border-radius:4px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:${r.color};opacity:.75;border-radius:4px"></div>
+          </div>
+          <div style="font-size:12px;font-family:'IBM Plex Mono',monospace;color:var(--text);width:36px;text-align:right;font-weight:600">${count}</div>
+        </div>`;
+    }).join('');
+  }
+
+  // Top signals (clickable cards)
+  const sigEl = document.getElementById('fsv-top-signals');
+  if (sigEl) {
+    const all = [
+      ...(_findings.anomalies  ||[]).slice(0,3).map(f=>({...f,_lens:'ANOMALY',    _lensKey:'anomalies',  _clr:'var(--signal)'})),
+      ...(_findings.suspicious ||[]).slice(0,2).map(f=>({...f,_lens:'SUSPICIOUS', _lensKey:'suspicious', _clr:'var(--danger)'})),
+      ...(_findings.topology   ||[]).slice(0,2).map(f=>({...f,_lens:'TOPOLOGY',   _lensKey:'topology',   _clr:'var(--tda)'   })),
+      ...(_findings.drift      ||[]).slice(0,2).map(f=>({...f,_lens:'DRIFT',      _lensKey:'drift',      _clr:'var(--drift)' })),
+    ].sort((a,b)=>(b.score||0)-(a.score||0)).slice(0,6);
+
+    sigEl.innerHTML = all.length
+      ? all.map(f =>
+          `<div style="margin-bottom:10px;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-left:2px solid ${f._clr};border-radius:3px;cursor:pointer"
+               onclick="showView('analysis');setLens('${f._lensKey}')">
+             <div style="font-size:10px;color:${f._clr};font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">${f._lens} · score ${(f.score||0).toFixed(3)}</div>
+             <div style="font-size:13px;color:var(--text);font-weight:500;margin-bottom:3px">${esc(f.title||'')}</div>
+             <div style="font-size:12px;color:var(--mute)">${esc((f.detail||'').slice(0,130))}${(f.detail||'').length>130?'…':''}</div>
+           </div>`
+        ).join('')
+      : '<span style="color:var(--faint)">No signals loaded yet.</span>';
+  }
+}
+
+async function fsvSummarizeLens() {
+  const el = document.getElementById('fsv-ai-content');
+  if (el) el.textContent = 'Generating lens analysis…';
+  const activeLens = (typeof _currentLens !== 'undefined' && _currentLens) ? _currentLens : 'anomalies';
+  try {
+    const data = await fetch(`${API}/api/summarize`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ kind:'lens', lens:activeLens }),
+    }).then(r => r.json());
+    const note = data.note ? `<div style="margin-top:10px;color:var(--faint);font-size:11px">${esc(data.note)}</div>` : '';
+    if (el) el.innerHTML = `<div>${mdLite(data.summary||'')}</div>${note}`;
+  } catch(e) { if (el) el.textContent = 'Summary unavailable.'; }
+}
+
+async function fsvSummarizeDataset() {
+  const el = document.getElementById('fsv-ai-content');
+  if (el) el.textContent = 'Generating dataset overview…';
+  try {
+    const data = await fetch(`${API}/api/summarize`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ kind:'overview' }),
+    }).then(r => r.json());
+    if (el) el.innerHTML = `<div>${mdLite(data.summary||'')}</div>`;
+  } catch(e) { if (el) el.textContent = 'Summary unavailable.'; }
+}
+
+function fsvLoadAI() { fsvSummarizeDataset(); }
+
 // ── Summarize ─────────────────────────────────────────────────────────────────
 
 async function summarize(mode) {
@@ -330,7 +493,7 @@ function initReportButtons() {
 
 let _activeView = 'analysis';
 
-const VIEWS = ['work', 'view-tda-explorer', 'view-report', 'view-gov-aid-report'];
+const VIEWS = ['work', 'view-tda-explorer', 'view-report', 'view-summary', 'view-gov-aid-report'];
 
 function showView(name) {
   _activeView = name;
@@ -364,6 +527,11 @@ function showView(name) {
     if (el) el.style.display = 'flex';
     loadInlineReport();
 
+  } else if (name === 'summary') {
+    const el = document.getElementById('view-summary');
+    if (el) el.style.display = 'flex';
+    buildFullSummaryView();
+
   } else {
     // analysis (default)
     if (work) work.style.display = '';
@@ -374,6 +542,7 @@ function showView(name) {
   const navMap = {
     'tda-explorer': 'btn-explorer',
     'report':       'btn-report',
+    'summary':      'btn-summary',
     'analysis':     null,
   };
   const btnId = navMap[name];

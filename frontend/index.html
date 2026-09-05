@@ -271,6 +271,7 @@ nav{
   <button class="navbtn" id="btn-explorer" data-nav="explorer">TDA Explorer</button>
   <button class="navbtn accent" id="btn-interrogate">› interrogate</button>
   <button class="navbtn" id="btn-report">report</button>
+  <button class="navbtn" id="btn-summary" onclick="showView('summary')">Summary</button>
   <button class="navbtn accent" id="btn-ai-report">AI report</button>
   <button class="navbtn" id="btn-chat-open">chat ↗</button>
   <button class="navbtn" onclick="showView('gov-aid-report')" style="color:var(--drift);border-left:1px solid var(--line);margin-left:8px;padding-left:16px">Gov Aid Report</button>
@@ -484,6 +485,69 @@ nav{
   </div>
 </div>
 
+
+
+<!-- ── Dataset Summary view ───────────────────────────────────────────────── -->
+<div id="view-summary" style="display:none;flex:1;flex-direction:column;min-height:0;background:var(--ink);overflow:hidden">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:center;gap:12px;padding:11px 20px;border-bottom:1px solid var(--line);flex:none;background:var(--panel)">
+    <button onclick="showView('analysis')" style="background:none;border:1px solid var(--line);color:var(--mute);border-radius:3px;padding:5px 12px;font-size:11px;font-family:'IBM Plex Mono',monospace;cursor:pointer">← Analysis</button>
+    <span style="font-size:11px;color:var(--tda);font-family:'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase">DATASET SUMMARY — TDA PATTERN INTELLIGENCE</span>
+    <button onclick="fsvLoadAI()" style="margin-left:auto;background:none;border:1px solid rgba(155,127,212,.4);color:var(--tda);border-radius:3px;padding:5px 12px;font-size:11px;font-family:'IBM Plex Mono',monospace;cursor:pointer">+ AI Overview</button>
+  </div>
+
+  <!-- Two-column body -->
+  <div style="flex:1;overflow-y:auto;padding:20px 24px;display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start">
+
+    <!-- Left column -->
+    <div style="display:flex;flex-direction:column;gap:16px">
+
+      <!-- Dataset KPIs -->
+      <div style="background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:16px">
+        <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-family:'IBM Plex Mono',monospace;margin-bottom:14px">DATASET OVERVIEW</div>
+        <div id="fsv-stat-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px"></div>
+      </div>
+
+      <!-- Finding Distribution -->
+      <div style="background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:16px">
+        <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-family:'IBM Plex Mono',monospace;margin-bottom:14px">FINDING DISTRIBUTION</div>
+        <div id="fsv-finding-dist"></div>
+      </div>
+
+      <!-- AI Analysis -->
+      <div style="background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:16px">
+        <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-family:'IBM Plex Mono',monospace;margin-bottom:12px">AI ANALYSIS</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          <button class="sum-btn" onclick="fsvSummarizeLens()">AI: Active Lens</button>
+          <button class="sum-btn" onclick="fsvSummarizeDataset()">AI: Dataset Overview</button>
+        </div>
+        <div id="fsv-ai-content" style="font-size:12.5px;line-height:1.65;color:var(--mute)">Select an AI analysis above.</div>
+      </div>
+
+    </div>
+
+    <!-- Right column -->
+    <div style="display:flex;flex-direction:column;gap:16px">
+
+      <!-- Shape Pattern Analysis -->
+      <div style="background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:16px">
+        <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-family:'IBM Plex Mono',monospace;margin-bottom:14px">SHAPE PATTERN ANALYSIS</div>
+        <div id="fsv-tda-metrics" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px"></div>
+        <div id="fsv-shape-interpretation" style="font-size:13px;line-height:1.7;color:var(--mute);background:var(--panel2);border:1px solid var(--line);border-radius:3px;padding:12px 14px;margin-bottom:12px"></div>
+        <div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-family:'IBM Plex Mono',monospace;margin-bottom:8px">H₁ PERSISTENCE LOOPS</div>
+        <div id="fsv-h1-loops" style="font-size:12px;color:var(--mute);font-family:'IBM Plex Mono',monospace;line-height:1.8"></div>
+      </div>
+
+      <!-- Top Signals -->
+      <div style="background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:16px">
+        <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-family:'IBM Plex Mono',monospace;margin-bottom:14px">TOP SIGNALS</div>
+        <div id="fsv-top-signals"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
 
 
 <!-- ── Gov Aid Report view (in-page iframe) ──────────────────────────────── -->
