@@ -458,8 +458,8 @@ async function buildPersistenceDiagram() {
   };
   const hideTip = () => tip.transition().duration(120).style('opacity', 0);
 
-  // H₀ points — render finite ones normally, infinite at top edge
-  const h0Finite = h0pts.filter(d => !d.infinite);
+  // H₀: only show points within diagram bounds (H₀ raw deaths can be huge)
+  const h0Finite = h0pts.filter(d => !d.infinite && d.death <= axMax);
   const h0Inf    = h0pts.filter(d =>  d.infinite);
 
   root.selectAll('.pt-h0').data(h0Finite).join('circle')

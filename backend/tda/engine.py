@@ -107,16 +107,21 @@ def compute_persistent_homology(X_norm: np.ndarray, sample_n: int = _SAMPLE_N) -
             for i, r in enumerate(top200)
         ]
 
+        # Axis bound: use H₁ death max, not H₀ (H₀ deaths are raw PCA distances,
+        # orders of magnitude larger — they would squash H₁ into the corner).
+        h1_death_max = float(finite[:, 1].max()) if betti1 > 0 else max_p
+        diagram_max  = round(h1_death_max * 1.08, 4)
+
         result.update({
             "available":       True,
             "betti_0":         len(h0_finite) + len(h0_inf),
             "betti_1":         betti1,
             "max_persistence": round(max_p, 4),
             "h0_features":     h0_feats,
-            "h1_features":     [f for f in h1_feats if f["label"]],  # labelled top-10 for list
-            "diagram_h0":      h0_feats,                              # all H₀ for diagram
-            "diagram_h1":      h1_feats,                              # top-200 H₁ for diagram
-            "diagram_max":     round(max(h0_max, max_p) * 1.05, 4),  # axis upper bound
+            "h1_features":     [f for f in h1_feats if f["label"]],
+            "diagram_h0":      h0_feats,
+            "diagram_h1":      h1_feats,
+            "diagram_max":     diagram_max,
         })
         log.info("TDA: β₁=%d  max_pers=%.4f", result["betti_1"], result["max_persistence"])
     except Exception as exc:
