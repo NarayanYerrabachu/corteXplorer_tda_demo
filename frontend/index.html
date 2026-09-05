@@ -327,7 +327,7 @@ nav{
     <div class="rtabs">
       <button class="rtab active" onclick="openGraphTab()">Graph</button>
       <button class="rtab" onclick="switchRTab('audit')">Audit Trail</button>
-      <button class="rtab" onclick="openSummarizeTab()">Summarize</button>
+      <button class="rtab" onclick="switchRTab('summarize')">Summarize</button>
     </div>
 
     <!-- Graph tab -->
@@ -346,48 +346,14 @@ nav{
       </div>
     </div>
 
-    <!-- Summarize tab -->
-    <div class="rtab-content" id="tab-summarize" style="display:none;padding:0;gap:0;overflow-y:auto">
-
-      <!-- Dataset Overview -->
-      <div style="padding:12px 14px;border-bottom:1px solid var(--line)">
-        <div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);margin-bottom:10px;font-family:'IBM Plex Mono',monospace">DATASET OVERVIEW</div>
-        <div id="sum-stat-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:6px"></div>
+    <!-- Summarize tab — AI lens summary -->
+    <div class="rtab-content" id="tab-summarize" style="display:none">
+      <button class="sum-btn" onclick="summarize('overview')">Summarize This Lens</button>
+      <div id="summarize-content" class="sum-text" style="margin-top:12px;color:var(--mute)">
+        Click above for an AI-written analysis of the active lens.
       </div>
-
-      <!-- Shape Pattern Analysis -->
-      <div style="padding:12px 14px;border-bottom:1px solid var(--line)">
-        <div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);margin-bottom:10px;font-family:'IBM Plex Mono',monospace">SHAPE PATTERN ANALYSIS</div>
-        <div id="sum-tda-metrics" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px"></div>
-        <div id="sum-shape-interpretation" style="font-size:12px;line-height:1.65;color:var(--mute);background:var(--panel2);border:1px solid var(--line);border-radius:3px;padding:10px 12px;margin-bottom:8px"></div>
-        <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:6px;font-family:'IBM Plex Mono',monospace">H₁ PERSISTENCE LOOPS</div>
-        <div id="sum-h1-loops" style="font-size:11px;color:var(--mute);font-family:'IBM Plex Mono',monospace;line-height:1.7"></div>
-      </div>
-
-      <!-- Finding Distribution -->
-      <div style="padding:12px 14px;border-bottom:1px solid var(--line)">
-        <div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);margin-bottom:10px;font-family:'IBM Plex Mono',monospace">FINDING DISTRIBUTION</div>
-        <div id="sum-finding-dist"></div>
-      </div>
-
-      <!-- Notable Patterns -->
-      <div style="padding:12px 14px;border-bottom:1px solid var(--line)">
-        <div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);margin-bottom:10px;font-family:'IBM Plex Mono',monospace">TOP SIGNALS</div>
-        <div id="sum-top-signals" style="font-size:12px;line-height:1.6;color:var(--mute)"></div>
-      </div>
-
-      <!-- AI Buttons -->
-      <div style="padding:12px 14px">
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-          <button class="sum-btn" onclick="summarize('overview')">AI: Lens Summary</button>
-          <button class="sum-btn" onclick="summarizeDataset()">AI: Dataset Overview</button>
-        </div>
-        <div id="summarize-content" class="sum-text" style="color:var(--mute)">
-          Click an AI button above for an AI-written analysis.
-        </div>
-      </div>
-
     </div>
+
   </section>
 </div><!-- .work -->
 
