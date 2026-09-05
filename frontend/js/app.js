@@ -360,14 +360,16 @@ async function fsvSummarizeLens() {
 
 async function fsvSummarizeDataset() {
   const el = document.getElementById('fsv-ai-content');
-  if (el) el.textContent = 'Generating dataset overview…';
+  if (!el) return;
+  el.innerHTML = '<span style="color:var(--faint);font-style:italic">Generating dataset overview…</span>';
   try {
     const data = await fetch(`${API}/api/summarize`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ kind:'overview' }),
     }).then(r => r.json());
-    if (el) el.innerHTML = `<div>${mdLite(data.summary||'')}</div>`;
-  } catch(e) { if (el) el.textContent = 'Summary unavailable.'; }
+    el.innerHTML = `<div style="line-height:1.8">${mdLite(data.summary||'')}</div>`;
+    el.dataset.loaded = '1';
+  } catch(e) { el.textContent = 'Summary unavailable — check the API server.'; }
 }
 
 function fsvLoadAI() { fsvSummarizeDataset(); }
@@ -531,6 +533,9 @@ function showView(name) {
     const el = document.getElementById('view-summary');
     if (el) el.style.display = 'flex';
     buildFullSummaryView();
+    // Auto-generate the dataset description on first open
+    const aiEl = document.getElementById('fsv-ai-content');
+    if (aiEl && !aiEl.dataset.loaded) fsvSummarizeDataset();
 
   } else {
     // analysis (default)
