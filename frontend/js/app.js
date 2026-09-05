@@ -458,6 +458,9 @@ async function buildPersistenceDiagram() {
   };
   const hideTip = () => tip.transition().duration(120).style('opacity', 0);
 
+  const C_H0 = '#4EA8DE';   // bright blue  — H₀ connected components
+  const C_H1 = '#FF6B6B';   // coral red    — H₁ loops
+
   // H₀: only show points within diagram bounds (H₀ raw deaths can be huge)
   const h0Finite = h0pts.filter(d => !d.infinite && d.death <= axMax);
   const h0Inf    = h0pts.filter(d =>  d.infinite);
@@ -466,16 +469,16 @@ async function buildPersistenceDiagram() {
     .attr('class','pt-h0')
     .attr('cx', d => xSc(d.birth))
     .attr('cy', d => ySc(d.death))
-    .attr('r', 4)
-    .attr('fill','var(--relate)').attr('opacity', 0.75).attr('stroke','none')
+    .attr('r', 5)
+    .attr('fill', C_H0).attr('opacity', 0.85).attr('stroke','rgba(78,168,222,0.4)').attr('stroke-width',1)
     .on('mousemove', showTip).on('mouseleave', hideTip);
 
-  // Infinite H₀ — shown as diamond at top-left edge
+  // Infinite H₀ — diamond at top edge
   root.selectAll('.pt-h0-inf').data(h0Inf).join('path')
     .attr('class','pt-h0-inf')
-    .attr('d', d3.symbol().type(d3.symbolDiamond).size(60))
+    .attr('d', d3.symbol().type(d3.symbolDiamond).size(80))
     .attr('transform', d => `translate(${xSc(d.birth)}, ${ySc(axMax) + 8})`)
-    .attr('fill','var(--relate)').attr('opacity', 0.9)
+    .attr('fill', C_H0).attr('opacity', 1).attr('stroke','rgba(78,168,222,0.5)').attr('stroke-width',1.5)
     .on('mousemove', (ev, d) => showTip(ev, {...d, death: Infinity, persistence: Infinity}))
     .on('mouseleave', hideTip);
 
@@ -484,10 +487,10 @@ async function buildPersistenceDiagram() {
     .attr('class','pt-h1')
     .attr('cx', d => xSc(d.birth))
     .attr('cy', d => ySc(d.death))
-    .attr('r', d => d.persistence > axMax * 0.1 ? 5 : 3.5)
-    .attr('fill','var(--signal)').attr('opacity', d => Math.min(0.9, 0.35 + d.persistence / axMax))
-    .attr('stroke', d => d.persistence > axMax * 0.2 ? 'rgba(224,163,62,0.6)' : 'none')
-    .attr('stroke-width', 1)
+    .attr('r', d => d.persistence > axMax * 0.1 ? 5.5 : 3.5)
+    .attr('fill', C_H1).attr('opacity', d => Math.min(0.92, 0.35 + d.persistence / axMax))
+    .attr('stroke', d => d.persistence > axMax * 0.2 ? 'rgba(255,107,107,0.5)' : 'none')
+    .attr('stroke-width', 1.2)
     .on('mousemove', showTip).on('mouseleave', hideTip);
 
   // Label the top-5 most persistent H₁
@@ -496,7 +499,7 @@ async function buildPersistenceDiagram() {
     .attr('class','lbl-h1')
     .attr('x', d => xSc(d.birth) + 7)
     .attr('y', d => ySc(d.death) - 4)
-    .attr('fill','var(--signal)').attr('font-size', 9)
+    .attr('fill', C_H1).attr('font-size', 9)
     .attr('font-family','IBM Plex Mono,monospace')
     .text(d => `p=${d.persistence.toFixed(3)}`);
 }
