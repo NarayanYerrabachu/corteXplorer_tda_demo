@@ -10,6 +10,8 @@ async function init() {
 
     _findings    = findingsRes;
     _featureCols = findingsRes.meta?.numeric_features || [];
+    _datasetStats = datasetRes;
+    _cyclesData   = cyclesRes;
 
     // Header stats
     setEl('stat-records', (datasetRes.total_records || 0).toLocaleString());
@@ -49,6 +51,161 @@ async function init() {
     toast('⚠ Cannot connect to API at ' + API);
     const list = document.getElementById('findings-list');
     if (list) list.innerHTML = `<div class="src-empty">Cannot connect to CorteXplorer API.<br><code>${API}</code><br>Start with: <code>bash run.sh</code></div>`;
+  }
+}
+
+// ── Dataset summary panel ─────────────────────────────────────────────────────
+
+let _datasetStats = {};
+let _cyclesData   = {};
+
+function openSummarizeTab() {
+  if (typeof switchRTab === 'function') switchRTab('summarize');
+  buildDatasetSummaryPanel();
+}
+
+function buildDatasetSummaryPanel() {
+  const s   = _datasetStats;
+  const m   = (_findings && _findings.meta) ? _findings.meta : {};
+  const tda = m.tda || {};
+
+  // ── Dataset stat tiles ────────────────────────────────────────────────────
+  const statGrid = document.getElementById('sum-stat-grid');
+  if (statGrid) {
+    const clr = { tda:'var(--tda)', ok:'var(--ok)', warn:'var(--signal)', mute:'var(--mute)', '':'var(--text)' };
+    const tiles = [
+      { v: (s.total_records || 0).toLocaleString(), l: 'Records',       c: 'tda'  },
+      { v: s.countries  ?? '–',                    l: 'Countries',      c: ''     },
+      { v: s.sectors    ?? '–',                    l: 'DAC Sectors',    c: ''     },
+      { v: s.year_range ?? '–',                    l: 'Year Range',     c: ''     },
+      { v: `${(+(s.success_rate    || 0)).toFixed(1)}%`, l: 'Success Rate',  c: 'ok'   },
+      { v: `${(+(s.avg_overrun_pct || 0)).toFixed(1)}%`, l: 'Avg Overrun',   c: 'warn' },
+      { v: (+(s.avg_cpi   || 0)).toFixed(1),              l: 'Avg CPI Score', c: ''     },
+      { v: `${Math.round(+(s.avg_eval_lag || 0))}d`,      l: 'Avg Eval Lag',  c: 'mute' },
+    ];
+    statGrid.innerHTML = tiles.map(t =>
+      `<div style="background:var(--panel2);border:1px solid var(--line);border-radius:3px;padding:8px 10px">
+         <div style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:700;color:${clr[t.c]}">${esc(String(t.v))}</div>
+         <div style="font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.12em;margin-top:3px">${t.l}</div>
+       </div>`
+    ).join('');
+  }
+
+  // ── TDA shape metrics ─────────────────────────────────────────────────────
+  const tdaEl = document.getElementById('sum-tda-metrics');
+  if (tdaEl) {
+    const b0 = tda.betti_0 ?? 1;
+    const b1 = tda.betti_1 ?? 0;
+    const mp = (+(tda.max_persistence ?? 0)).toFixed(4);
+    tdaEl.innerHTML = [
+      { v: b0, l: 'β₀ COMPONENTS' },
+      { v: b1, l: 'β₁ LOOPS'      },
+      { v: mp, l: 'MAX PERS'      },
+    ].map(t =>
+      `<div style="background:var(--panel2);border:1px solid var(--line);border-radius:3px;padding:8px;text-align:center">
+         <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:700;color:var(--tda)">${t.v}</div>
+         <div style="font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.09em;margin-top:3px">${t.l}</div>
+       </div>`
+    ).join('');
+
+    // Shape interpretation text
+    const b1n = Number(b1);
+    const mpn = parseFloat(mp);
+    const nClusters = m.n_clusters || 0;
+    let shape = '';
+    if (b1n === 0) {
+      shape = `<b style="color:var(--tda)">Tree-like (acyclic)</b> — the dataset forms ${b0} connected component${b0 !== 1 ? 's' : ''} with no persistent cycles. Aid projects cluster in hierarchically separated groups with no detectable circular funding structure.`;
+    } else if (b1n <= 2) {
+      shape = `<b style="color:var(--tda)">Weakly cyclic</b> — ${b1n} persistent H₁ loop${b1n > 1 ? 's' : ''} detected (max persistence ${mp}). This suggests ${b1n > 1 ? 'recurring' : 'a recurring'} structural pattern — possibly cyclical funding relationships or correlated project profiles repeated across countries.`;
+    } else {
+      shape = `<b style="color:var(--signal)">Strongly cyclic (${b1n} loops)</b> — the topology contains ${b1n} H₁ loops with max persistence ${mp}. Strong signal of systematic, repeated structural patterns: circular funding networks or correlated failure modes recurring across sectors.`;
+    }
+    if (mpn > 0.5) shape += ` The high persistence (${mp}) confirms these are <b style="color:var(--signal)">robust topological features</b>, not noise.`;
+    else if (mpn > 0.2) shape += ` Persistence ${mp} indicates <b style="color:var(--text)">moderate confidence</b> — patterns are real but not dominant.`;
+    else if (mpn > 0) shape += ` Low persistence (${mp}) — treat as <b style="color:var(--mute)">exploratory signals</b> requiring further verification.`;
+    if (nClusters > 0) shape += ` DBSCAN found <b style="color:var(--tda)">${nClusters} cluster${nClusters > 1 ? 's' : ''}</b> — ${nClusters > 5 ? 'highly fragmented across many distinct project archetypes' : 'grouped into ' + nClusters + ' cohesive project profile' + (nClusters > 1 ? 's' : '')}.`;
+
+    const interpEl = document.getElementById('sum-shape-interpretation');
+    if (interpEl) interpEl.innerHTML = shape;
+
+    // H₁ loops
+    const h1  = tda.h1_features || [];
+    const h1El = document.getElementById('sum-h1-loops');
+    if (h1El) {
+      h1El.innerHTML = h1.length
+        ? h1.slice(0, 6).map((lp, i) =>
+            `<div style="padding:3px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:8px">
+               <span style="color:var(--mute)">Loop ${i + 1}</span>
+               <span>pers <b style="color:var(--tda)">${(lp.persistence || 0).toFixed(4)}</b></span>
+               <span style="color:var(--faint)">${(lp.birth || 0).toFixed(3)} → ${(lp.death || 0).toFixed(3)}</span>
+             </div>`
+          ).join('')
+        : '<span style="color:var(--faint)">No H₁ loops detected</span>';
+    }
+  }
+
+  // ── Finding distribution bars ─────────────────────────────────────────────
+  const distEl = document.getElementById('sum-finding-dist');
+  if (distEl) {
+    const rows = [
+      { k: 'anomalies',     lensKey: 'anomalies',     label: 'Anomalies',     color: 'var(--signal)', mkey: 'n_anomalies'    },
+      { k: 'suspicious',    lensKey: 'suspicious',    label: 'Suspicious',    color: 'var(--danger)', mkey: 'n_suspicious'   },
+      { k: 'themes',        lensKey: 'clusters',      label: 'Clusters',      color: 'var(--tda)',    mkey: 'n_clusters'     },
+      { k: 'relationships', lensKey: 'relationships', label: 'Relationships', color: 'var(--relate)', mkey: 'n_relationships' },
+      { k: 'drift',         lensKey: 'drift',         label: 'Drift',         color: 'var(--drift)',  mkey: 'n_drift'        },
+      { k: 'topology',      lensKey: 'topology',      label: 'Topology',      color: 'var(--tda)',    mkey: null             },
+    ];
+    const counts = rows.map(r => r.mkey ? (m[r.mkey] || 0) : (_findings[r.k] || []).length);
+    const maxCount = Math.max(1, ...counts);
+    distEl.innerHTML = rows.map((r, i) => {
+      const count = counts[i];
+      const pct   = Math.round((count / maxCount) * 100);
+      return `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer"
+             onclick="setLens('${r.lensKey}');if(typeof switchRTab==='function')switchRTab('graph')">
+          <div style="width:76px;font-size:10.5px;color:${r.color};font-family:'IBM Plex Mono',monospace;text-align:right;flex:none">${r.label}</div>
+          <div style="flex:1;height:5px;background:var(--panel2);border-radius:3px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:${r.color};opacity:.75;border-radius:3px;transition:width .3s"></div>
+          </div>
+          <div style="font-size:10.5px;font-family:'IBM Plex Mono',monospace;color:var(--faint);width:28px;text-align:right">${count}</div>
+        </div>`;
+    }).join('');
+  }
+
+  // ── Top signals ───────────────────────────────────────────────────────────
+  const sigEl = document.getElementById('sum-top-signals');
+  if (sigEl) {
+    const all = [
+      ...(_findings.anomalies     || []).slice(0, 2).map(f => ({ ...f, _lens: 'anomaly',  _clr: 'var(--signal)' })),
+      ...(_findings.suspicious    || []).slice(0, 2).map(f => ({ ...f, _lens: 'suspicious', _clr: 'var(--danger)' })),
+      ...(_findings.topology      || []).slice(0, 1).map(f => ({ ...f, _lens: 'topology',   _clr: 'var(--tda)'    })),
+      ...(_findings.drift         || []).slice(0, 1).map(f => ({ ...f, _lens: 'drift',      _clr: 'var(--drift)'  })),
+    ].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5);
+
+    sigEl.innerHTML = all.length
+      ? all.map(f =>
+          `<div style="margin-bottom:8px;padding:8px 10px;background:var(--panel2);border:1px solid var(--line);border-left:2px solid ${f._clr};border-radius:3px">
+             <div style="font-size:11px;color:${f._clr};font-family:'IBM Plex Mono',monospace;text-transform:uppercase;margin-bottom:2px">${f._lens} · score ${(f.score || 0).toFixed(3)}</div>
+             <div style="font-size:12.5px;color:var(--text);font-weight:500">${esc(f.title || '')}</div>
+             <div style="font-size:11.5px;color:var(--mute);margin-top:3px">${esc((f.detail || '').slice(0, 110))}${(f.detail || '').length > 110 ? '…' : ''}</div>
+           </div>`
+        ).join('')
+      : '<span style="color:var(--faint)">Load findings to see top signals.</span>';
+  }
+}
+
+async function summarizeDataset() {
+  const el = document.getElementById('summarize-content');
+  if (el) el.textContent = 'Generating dataset overview…';
+  try {
+    const data = await fetch(`${API}/api/summarize`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ kind: 'overview' }),
+    }).then(r => r.json());
+    if (el) el.innerHTML = `<div class="sum-text">${mdLite(data.summary || '')}</div>`;
+  } catch (e) {
+    if (el) el.textContent = 'Summary unavailable.';
   }
 }
 
