@@ -128,7 +128,7 @@ def _compute_temporal_background() -> None:
             return
 
         feat_cols = [c for c in tda_cols if c in df.columns]
-        years_all = sorted(df[APPROVAL_YEAR].dropna().unique().astype(int))
+        years_all = [int(y) for y in sorted(df[APPROVAL_YEAR].dropna().unique())]
         mid_year  = int(df[APPROVAL_YEAR].dropna().median())
 
         _YEAR_SAMPLE = 120   # rows per year — fast ripser (~0.1 s/year)
@@ -642,6 +642,12 @@ def get_tda_cycles():
 def get_tda_temporal():
     """Per-year persistent homology + Wasserstein topological change signal."""
     cached = _state.get("temporal_homology", {"years": [], "computing": True})
+    # If previous run errored, retrigger in background
+    if cached.get("error"):
+        with _lock:
+            _state["temporal_homology"] = {"years": [], "computing": True}
+        threading.Thread(target=_compute_temporal_background, daemon=True).start()
+        return {"years": [], "computing": True}
     return cached
 
 
