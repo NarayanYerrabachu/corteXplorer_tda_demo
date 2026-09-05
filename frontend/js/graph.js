@@ -599,17 +599,44 @@ function drawClusterChart(themes) {
     .attr('stroke','rgba(42,47,58,.6)').attr('stroke-dasharray','3,3');
 
   const tip = _tooltip();
+
+  // "Click to open" hint
+  svg.append('text').attr('x', W - margin.right).attr('y', 16)
+    .attr('text-anchor','end').attr('fill','#59616E').attr('font-size',9)
+    .attr('font-family',"'IBM Plex Mono',monospace").text('click bar → cluster detail');
+
   themes.forEach((t,i)=>{
     const x = xScale(labels[i]), w = xScale.bandwidth(), h = innerH-yScale(counts[i]);
+    const col = COLS[i%COLS.length];
+
     root.append('rect').attr('x',x).attr('y',yScale(counts[i])).attr('width',w).attr('height',h)
-      .attr('fill',COLS[i%COLS.length]).attr('fill-opacity',.8).attr('rx',2).style('cursor','pointer')
+      .attr('fill',col).attr('fill-opacity',.8).attr('rx',2).style('cursor','pointer')
       .on('mouseover',(ev)=>{
+        d3.select(ev.target).attr('fill-opacity',1).attr('stroke',col).attr('stroke-width',1.5);
         tip.style('display','block').style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px')
-          .html(`<b>${labels[i]}</b><br>${t.title?.replace(/^Cluster \d+: /,'') || ''}<br>${counts[i]} projects`);
-      }).on('mousemove',(ev)=>tip.style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px'))
-        .on('mouseout',()=>tip.style('display','none'));
+          .html(`<b>${labels[i]}</b><br>${t.title?.replace(/^Cluster \d+: /,'') || ''}<br>${counts[i].toLocaleString()} projects<br><span style="color:#59616E;font-size:10px">click to view detail</span>`);
+      })
+      .on('mousemove',(ev)=>tip.style('left',(ev.clientX+12)+'px').style('top',(ev.clientY-24)+'px'))
+      .on('mouseout',(ev)=>{
+        d3.select(ev.target).attr('fill-opacity',.8).attr('stroke','none');
+        tip.style('display','none');
+      })
+      .on('click', () => {
+        tip.style('display','none');
+        // Highlight the matching card in the findings list and open cluster detail
+        const cards = document.querySelectorAll('.find');
+        const card  = cards[i];
+        if (card) {
+          card.scrollIntoView({ behavior:'smooth', block:'nearest' });
+          card.click();
+        } else if (typeof _showClusterDetail === 'function') {
+          _showClusterDetail(t);
+        }
+      });
+
     root.append('text').attr('x',x+w/2).attr('y',yScale(counts[i])-4).attr('text-anchor','middle')
-      .attr('fill','#878E9C').attr('font-size',9).text(counts[i]);
+      .attr('fill','#878E9C').attr('font-size',9).text(counts[i].toLocaleString())
+      .style('pointer-events','none');
   });
 
   _axes(root, xScale, yScale, innerH, innerW, 'cluster', 'projects');

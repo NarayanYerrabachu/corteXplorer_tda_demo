@@ -172,6 +172,7 @@ function selectFinding(f, el) {
   }
 }
 
+// exposed so graph.js bar click can call it directly
 function _showClusterDetail(f) {
   const ex      = f.extra || {};
   const stats   = ex.stats || {};
