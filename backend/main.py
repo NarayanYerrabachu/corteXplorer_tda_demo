@@ -114,6 +114,8 @@ def _build_state(df: pd.DataFrame, tda_cols: list[str], lens: str = "pca") -> di
 def _compute_temporal_background() -> None:
     """Compute per-year Wasserstein distances in a background thread."""
     import time as _time
+    from sklearn.decomposition import PCA
+    from sklearn.preprocessing import StandardScaler as _SS
     _time.sleep(2)   # let startup finish writing _state first
     try:
         df       = _state.get("df")
@@ -129,7 +131,6 @@ def _compute_temporal_background() -> None:
         years_all = sorted(df[APPROVAL_YEAR].dropna().unique().astype(int))
         mid_year  = int(df[APPROVAL_YEAR].dropna().median())
 
-        from sklearn.preprocessing import StandardScaler as _SS
         _YEAR_SAMPLE = 120   # rows per year — fast ripser (~0.1 s/year)
 
         year_rows: list[dict] = []
