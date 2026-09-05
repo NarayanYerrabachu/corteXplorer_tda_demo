@@ -111,6 +111,99 @@ def _build_state(df: pd.DataFrame, tda_cols: list[str], lens: str = "pca") -> di
     }
 
 
+def _compute_temporal_background() -> None:
+    """Compute per-year Wasserstein distances in a background thread."""
+    import time as _time
+    _time.sleep(2)   # let startup finish writing _state first
+    try:
+        df       = _state.get("df")
+        tda_cols = _state.get("tda_cols", [])
+        if df is None:
+            return
+
+        from backend.data.gov_aid_schema import APPROVAL_YEAR, COST_OVERRUN_PCT, SUCCESS
+        if APPROVAL_YEAR not in df.columns:
+            return
+
+        feat_cols = [c for c in tda_cols if c in df.columns]
+        years_all = sorted(df[APPROVAL_YEAR].dropna().unique().astype(int))
+        mid_year  = int(df[APPROVAL_YEAR].dropna().median())
+
+        from sklearn.preprocessing import StandardScaler as _SS
+        _YEAR_SAMPLE = 120   # rows per year — fast ripser (~0.1 s/year)
+
+        year_rows: list[dict] = []
+        prev_finite: Any = None
+
+        for year in years_all:
+            mask  = df[APPROVAL_YEAR] == year
+            yr_df = df[mask]
+            if len(yr_df) < 8:
+                prev_finite = None
+                continue
+
+            # Subsample for speed
+            n_samp = min(_YEAR_SAMPLE, len(yr_df))
+            yr_df  = yr_df.sample(n=n_samp, random_state=42)
+
+            X_raw  = yr_df[feat_cols].values.astype(float)
+            X_raw  = np.nan_to_num(X_raw, nan=0.0, posinf=0.0, neginf=0.0)
+            n_comp = min(3, X_raw.shape[1], X_raw.shape[0] - 1)
+            if n_comp < 1:
+                prev_finite = None
+                continue
+
+            X_norm = _SS().fit_transform(X_raw)
+            X_pca  = PCA(n_components=n_comp).fit_transform(X_norm)
+
+            wass = 0.0
+            try:
+                from ripser import ripser as _ripser
+                dgms   = _ripser(X_pca, maxdim=1)["dgms"]
+                finite = dgms[1][np.isfinite(dgms[1][:, 1])]
+
+                if prev_finite is not None and len(prev_finite) > 0 and len(finite) > 0:
+                    try:
+                        from persim import wasserstein as _wass
+                        wass = float(_wass(prev_finite, finite))
+                    except ImportError:
+                        p1 = np.sort(prev_finite[:, 1] - prev_finite[:, 0])[::-1][:15]
+                        p2 = np.sort(finite[:, 1]      - finite[:, 0])[::-1][:15]
+                        k  = min(len(p1), len(p2))
+                        if k:
+                            wass = float(np.linalg.norm(p1[:k] - p2[:k]))
+                prev_finite = finite
+            except Exception as exc:
+                log.debug("Temporal year %d: %s", year, exc)
+                prev_finite = None
+
+            avg_ovr = float(df[mask][COST_OVERRUN_PCT].mean()) if COST_OVERRUN_PCT in df.columns else 0.0
+            succ_r  = float(df[mask][SUCCESS].mean())           if SUCCESS           in df.columns else 0.0
+
+            year_rows.append({
+                "year":             year,
+                "n_projects":       int(mask.sum()),
+                "wasserstein_dist": round(wass,    4),
+                "avg_overrun_pct":  round(avg_ovr, 4),
+                "success_rate":     round(succ_r,  4),
+            })
+
+        w_vals = [r["wasserstein_dist"] for r in year_rows]
+        w_max  = max(w_vals) if w_vals else 1.0
+        for r in year_rows:
+            r["wasserstein_norm"] = round(r["wasserstein_dist"] / (w_max + 1e-9), 4)
+
+        result = {"years": year_rows, "drift_year": mid_year,
+                  "wasserstein_max": round(w_max, 4), "computing": False}
+        with _lock:
+            _state["temporal_homology"] = result
+        log.info("Temporal homology ready: %d years", len(year_rows))
+    except Exception as exc:
+        log.error("Temporal homology background computation failed: %s", exc)
+        with _lock:
+            _state["temporal_homology"] = {"years": [], "computing": False, "error": str(exc)}
+
+
 @app.on_event("startup")
 def startup():
     log.info("CorteXplorer TDA Demo starting on port 8010…")
@@ -118,9 +211,12 @@ def startup():
         df, tda_cols, _, warnings = load_and_prepare()
         with _lock:
             _state.update(_build_state(df, tda_cols))
+            _state["temporal_homology"] = {"years": [], "computing": True}
         log.info("State built: %d records, %d TDA features", len(df), len(tda_cols))
         for w in warnings:
             log.warning("Data warning: %s", w)
+        # Kick off temporal homology in background (slow ripser per year)
+        threading.Thread(target=_compute_temporal_background, daemon=True).start()
     except Exception as exc:
         log.error("Startup failed: %s", exc)
         raise
@@ -544,91 +640,8 @@ def get_tda_cycles():
 @app.get("/api/tda/temporal")
 def get_tda_temporal():
     """Per-year persistent homology + Wasserstein topological change signal."""
-    df       = _state.get("df")
-    tda_cols = _state.get("tda_cols", [])
-    if df is None:
-        raise HTTPException(503, "Data not loaded")
-
-    # Serve cached result if available
-    cached = _state.get("temporal_homology")
-    if cached:
-        return cached
-
-    from backend.data.gov_aid_schema import APPROVAL_YEAR, COST_OVERRUN_PCT, SUCCESS
-    if APPROVAL_YEAR not in df.columns:
-        return {"error": "No year column", "years": []}
-
-    feat_cols  = [c for c in tda_cols if c in df.columns]
-    years_all  = sorted(df[APPROVAL_YEAR].dropna().unique().astype(int))
-    mid_year   = int(df[APPROVAL_YEAR].dropna().median())
-
-    from sklearn.preprocessing import StandardScaler as _SS
-
-    year_rows: list[dict] = []
-    prev_finite: Any = None
-
-    for year in years_all:
-        mask  = df[APPROVAL_YEAR] == year
-        yr_df = df[mask]
-        if len(yr_df) < 8:
-            prev_finite = None
-            continue
-
-        X_raw  = yr_df[feat_cols].values.astype(float)
-        X_raw  = np.nan_to_num(X_raw, nan=0.0, posinf=0.0, neginf=0.0)
-        n_comp = min(3, X_raw.shape[1], X_raw.shape[0] - 1)
-        if n_comp < 1:
-            prev_finite = None
-            continue
-
-        X_norm = _SS().fit_transform(X_raw)
-        X_pca  = PCA(n_components=n_comp).fit_transform(X_norm)
-
-        wass = 0.0
-        try:
-            from ripser import ripser as _ripser
-            dgms   = _ripser(X_pca, maxdim=1)["dgms"]
-            h1     = dgms[1]
-            finite = h1[np.isfinite(h1[:, 1])]
-
-            if prev_finite is not None and len(prev_finite) > 0 and len(finite) > 0:
-                try:
-                    from persim import wasserstein as _wass
-                    wass = float(_wass(prev_finite, finite))
-                except ImportError:
-                    # Approx: L2 on sorted persistence values
-                    p1 = np.sort((prev_finite[:, 1] - prev_finite[:, 0]))[::-1][:15]
-                    p2 = np.sort((finite[:, 1]       - finite[:, 0]))[::-1][:15]
-                    k  = min(len(p1), len(p2))
-                    if k:
-                        wass = float(np.linalg.norm(p1[:k] - p2[:k]))
-            prev_finite = finite
-        except Exception as exc:
-            log.debug("Temporal homology year %d: %s", year, exc)
-            prev_finite = None
-
-        avg_ovr  = float(yr_df[COST_OVERRUN_PCT].mean()) if COST_OVERRUN_PCT in yr_df.columns else 0.0
-        succ_r   = float(yr_df[SUCCESS].mean())           if SUCCESS           in yr_df.columns else 0.0
-        n_proj   = int(mask.sum())
-
-        year_rows.append({
-            "year":              year,
-            "n_projects":        n_proj,
-            "wasserstein_dist":  round(wass,    4),
-            "avg_overrun_pct":   round(avg_ovr, 4),
-            "success_rate":      round(succ_r,  4),
-        })
-
-    # Normalise Wasserstein to 0-1 for easy overlay
-    w_vals = [r["wasserstein_dist"] for r in year_rows]
-    w_max  = max(w_vals) if w_vals else 1.0
-    for r in year_rows:
-        r["wasserstein_norm"] = round(r["wasserstein_dist"] / (w_max + 1e-9), 4)
-
-    result = {"years": year_rows, "drift_year": mid_year, "wasserstein_max": round(w_max, 4)}
-    with _lock:
-        _state["temporal_homology"] = result
-    return result
+    cached = _state.get("temporal_homology", {"years": [], "computing": True})
+    return cached
 
 
 # ── TDA re-run ────────────────────────────────────────────────────────────────

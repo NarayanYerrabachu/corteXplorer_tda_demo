@@ -215,19 +215,42 @@ async function buildTemporalChart() {
   const svg = document.getElementById('fsv-temporal-chart');
   if (!svg || typeof d3 === 'undefined') return;
 
+  // Wait for layout so getBoundingClientRect gives real width
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  await new Promise(r => setTimeout(r, 60));
+
   let data;
   try {
     data = await fetch(`${API}/api/tda/temporal`).then(r => r.json());
-  } catch(e) { return; }
+  } catch(e) {
+    d3.select(svg).attr('height', 60).append('text').attr('x','50%').attr('y','50%')
+      .attr('fill','#59616E').attr('font-size',11).attr('text-anchor','middle')
+      .attr('dominant-baseline','middle').attr('font-family','IBM Plex Mono,monospace')
+      .text('API unavailable');
+    return;
+  }
+
+  // Still computing in background — show spinner and retry
+  if (data.computing || (data.years || []).length < 2) {
+    const W2 = svg.getBoundingClientRect().width || 500;
+    d3.select(svg).selectAll('*').remove();
+    d3.select(svg).attr('height', 80)
+      .attr('width', W2);
+    d3.select(svg).append('text').attr('x', W2/2).attr('y', 32)
+      .attr('fill','var(--tda)').attr('font-size',11).attr('text-anchor','middle')
+      .attr('font-family','IBM Plex Mono,monospace')
+      .text('Computing per-year topological change…');
+    d3.select(svg).append('text').attr('x', W2/2).attr('y', 52)
+      .attr('fill','#59616E').attr('font-size',10).attr('text-anchor','middle')
+      .attr('font-family','IBM Plex Mono,monospace')
+      .text('This runs ripser on each year — ready in ~20 s');
+    // Retry every 5 seconds until data arrives
+    setTimeout(buildTemporalChart, 5000);
+    return;
+  }
 
   const rows      = data.years || [];
   const driftYear = data.drift_year;
-  if (rows.length < 2) {
-    d3.select(svg).append('text').attr('x','50%').attr('y','50%')
-      .attr('fill','#59616E').attr('font-size',12).attr('text-anchor','middle')
-      .attr('dominant-baseline','middle').text('Insufficient yearly data');
-    return;
-  }
 
   const W = svg.getBoundingClientRect().width || 580;
   const H = 220;
@@ -350,7 +373,9 @@ async function buildPersistenceDiagram() {
   const svg = document.getElementById('fsv-persistence-diagram');
   if (!svg || typeof d3 === 'undefined') return;
 
-  // Fetch diagram data from the cycles endpoint
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  await new Promise(r => setTimeout(r, 60));
+
   let data;
   try {
     data = await fetch(`${API}/api/tda/cycles`).then(r => r.json());
